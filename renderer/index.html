@@ -68,14 +68,30 @@
   <!-- SETTINGS -->
   <section id="view-settings" class="view">
     <h1>Settings</h1>
-    <p>One domain per line. Include <span class="hint">www.</span> variants. Changes apply within a couple seconds.</p>
-    <textarea id="sites" spellcheck="false"></textarea>
-    <div class="btn-inline">
-      <button class="primary" id="btn-save-sites">Save sites</button>
-      <button id="btn-settings-back">Back</button>
+
+    <div class="scroll">
+      <h2 class="sec">Always blocked</h2>
+      <p class="hint">Locked. These stay blocked no matter what.</p>
+      <ul id="core-sites" class="locked-list"></ul>
+
+      <h2 class="sec">Also block</h2>
+      <p>One domain per line. Include <span class="hint">www.</span> variants. Changes apply within a couple seconds.</p>
+      <textarea id="sites" spellcheck="false"></textarea>
+      <button class="primary" id="btn-save-sites">Save extra sites</button>
+
+      <h2 class="sec">Stare length</h2>
+      <p class="hint">How long you hold eye contact. Minimum <span id="min-gate">30</span> seconds. Making it longer applies right away; making it shorter needs one more stare at the current length.</p>
+      <div class="btn-inline" style="margin-top:10px">
+        <input type="number" id="gate-seconds" min="30" max="600" step="5" />
+        <button id="btn-save-gate">Save length</button>
+      </div>
+      <p id="gate-msg" class="hint" style="margin-top:8px"></p>
     </div>
-    <div class="spacer"></div>
-    <button class="danger" id="btn-uninstall">Turn off blocking completely (uninstall)</button>
+
+    <div class="btn-row">
+      <button id="btn-settings-back">Back</button>
+      <button class="danger" id="btn-uninstall">Turn off blocking completely (uninstall)</button>
+    </div>
   </section>
 
   <script type="module" src="app.js"></script>

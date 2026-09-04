@@ -19,7 +19,11 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": "dir"
+      "target": "dir",
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSCameraUsageDescription": "GazeGate needs the camera to verify you are holding eye contact before it unlocks a site."
+      }
     }
   },
   "devDependencies": {

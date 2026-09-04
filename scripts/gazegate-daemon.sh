@@ -1,6 +1,6 @@
 #!/bin/bash
 # GazeGate blocking daemon. Runs as root via launchd.
-# GAZEGATE_DAEMON_VERSION=2
+# GAZEGATE_DAEMON_VERSION=3
 # Keeps /etc/hosts in sync with rules the (unprivileged) app writes as files.
 # The app can NEVER edit /etc/hosts itself — only ask, via these files.
 #
@@ -18,7 +18,9 @@ HOSTS="/etc/hosts"
 START="# GAZEGATE-START"
 END="# GAZEGATE-END"
 
-DEFAULT_SITES="x.com www.x.com twitter.com www.twitter.com instagram.com www.instagram.com linkedin.com www.linkedin.com"
+# Always blocked, unioned in on top of whatever sites.txt holds. Deleting them
+# from sites.txt (or deleting the file) does not unblock them.
+CORE_SITES="x.com www.x.com twitter.com www.twitter.com instagram.com www.instagram.com linkedin.com www.linkedin.com"
 
 read_int() {
   local f="$1" d=0 v
@@ -30,11 +32,10 @@ read_int() {
 }
 
 read_sites() {
-  if [ -f "$SITES_FILE" ]; then
-    grep -vE '^\s*(#|$)' "$SITES_FILE" | awk '{print $1}'
-  else
-    for s in $DEFAULT_SITES; do echo "$s"; done
-  fi
+  {
+    for s in $CORE_SITES; do echo "$s"; done
+    [ -f "$SITES_FILE" ] && grep -vE '^[[:space:]]*(#|$)' "$SITES_FILE" | awk '{print tolower($1)}'
+  } | awk 'NF && !seen[$0]++'
 }
 
 base_hosts() {

@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('gazegate', {
   getSites: () => ipcRenderer.invoke('get-sites'),
   setSites: (list) => ipcRenderer.invoke('set-sites', list),
   onNavigate: (cb) => ipcRenderer.on('navigate', (_e, view) => cb(view)),
-  notifyReady: () => ipcRenderer.send('renderer-ready'),
   isDev: () => ipcRenderer.invoke('is-dev'),
+  getGateSeconds: () => ipcRenderer.invoke('get-gate-seconds'),
+  setGateSeconds: (n) => ipcRenderer.invoke('set-gate-seconds', n),
+  getCoreSites: () => ipcRenderer.invoke('get-core-sites'),
 });

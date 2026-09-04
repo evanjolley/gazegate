@@ -8,6 +8,9 @@ const DEV = !!process.env.GAZEGATE_DEV;
 let win = null;
 let tray = null;
 let quitting = false;
+// Whether the window should appear once the renderer paints. False when macOS
+// launched us at login — we want the menu-bar icon only, no window in your face.
+let pendingShow = true;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -27,9 +30,9 @@ function createWindow() {
   });
   win.loadFile('renderer/index.html');
 
-  // Reveal only once the renderer has painted its first frame — otherwise the
-  // window appears blank until some later event forces a repaint.
-  win.once('ready-to-show', () => revealWindow());
+  // Reveal once painted, unless we booted at login — then stay in the menu bar
+  // until the user actually asks for the window.
+  win.once('ready-to-show', () => { if (pendingShow) revealWindow(); });
 
   if (DEV) {
     win.webContents.openDevTools({ mode: 'detach' });
@@ -46,33 +49,30 @@ function createWindow() {
   });
 }
 
-// Force the compositor to actually repaint. A 1px resize is the one workaround
-// that reliably beats the macOS "window stays blank until a stray paint event"
-// bug; the window is fixed-size, so we flip resizable just for the nudge.
-function nudgeRepaint() {
-  if (!win || win.isDestroyed()) return;
-  const [w, h] = win.getSize();
-  const wasResizable = win.isResizable();
-  if (!wasResizable) win.setResizable(true);
-  win.setSize(w, h + 1);
-  win.setSize(w, h);
-  if (!wasResizable) win.setResizable(false);
-  win.webContents.invalidate();
-}
-
-// Bring the window forward and force it to actually paint.
 function revealWindow() {
-  if (!win) return;
+  if (!win || win.isDestroyed()) return;
+  pendingShow = true;
   win.show();
   win.focus();
   app.focus({ steal: true });
-  nudgeRepaint();
 }
 
 function showWindow(view) {
-  if (!win) createWindow();
+  if (!win || win.isDestroyed()) createWindow();
   revealWindow();
   if (view) win.webContents.send('navigate', view);
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  const secs = blocker.readGateSeconds();
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open GazeGate', click: () => showWindow('home') },
+    { label: `Unlock (${secs}s eye contact)…`, click: () => showWindow('gate-unlock') },
+    { label: 'Lock now', click: () => { blocker.lockNow(); } },
+    { type: 'separator' },
+    { label: 'Quit GazeGate', click: () => { quitting = true; app.quit(); } },
+  ]));
 }
 
 function createTray() {
@@ -80,22 +80,11 @@ function createTray() {
   icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip('GazeGate');
-  const menu = Menu.buildFromTemplate([
-    { label: 'Open GazeGate', click: () => showWindow('home') },
-    { label: 'Unlock (30s eye contact)…', click: () => showWindow('gate-unlock') },
-    { label: 'Lock now', click: () => { blocker.lockNow(); } },
-    { type: 'separator' },
-    { label: 'Quit GazeGate', click: () => { quitting = true; app.quit(); } },
-  ]);
-  tray.setContextMenu(menu);
+  refreshTrayMenu();
   tray.on('click', () => showWindow('home'));
 }
 
 // ---- IPC ----
-// The renderer fires this once it has painted its first view — force a repaint
-// so fixed content shows without needing a manual click on the tray icon.
-ipcMain.on('renderer-ready', () => { if (win && win.isVisible()) nudgeRepaint(); });
-
 ipcMain.handle('is-dev', () => DEV);
 
 ipcMain.handle('get-status', () => {
@@ -108,7 +97,18 @@ ipcMain.handle('get-status', () => {
     unlockMinutes: UNLOCK_MINUTES,
     isSunday: new Date().getDay() === 0,
     sites: blocker.readSites(),
+    coreSites: blocker.CORE_SITES,
+    gateSeconds: blocker.readGateSeconds(),
+    minGateSeconds: blocker.MIN_GATE_SECONDS,
   };
+});
+
+ipcMain.handle('get-core-sites', () => blocker.CORE_SITES);
+ipcMain.handle('get-gate-seconds', () => blocker.readGateSeconds());
+ipcMain.handle('set-gate-seconds', (_e, n) => {
+  const v = blocker.writeGateSeconds(n);
+  refreshTrayMenu();
+  return { ok: true, gateSeconds: v };
 });
 
 ipcMain.handle('sunday-block', () => { blocker.setSundayBlockTonight(); return { ok: true }; });
@@ -161,6 +161,18 @@ app.on('second-instance', () => showWindow('home'));
 app.whenReady().then(async () => {
   if (!gotSingleInstanceLock) return;
   blocker.ensureUserDir();
+
+  // Menu-bar-only: no Dock icon, no ⌘-Tab entry. The tray is the whole UI.
+  if (app.dock) app.dock.hide();
+
+  // Keep the icon pinned across restarts. Skipped in dev, where the executable
+  // is node_modules' Electron binary and registering it would be noise.
+  if (!DEV) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
+      pendingShow = !app.getLoginItemSettings().wasOpenedAtLogin;
+    } catch {}
+  }
 
   // Allow camera access for the gate.
   if (systemPreferences.askForMediaAccess) {

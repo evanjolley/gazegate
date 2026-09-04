@@ -2,7 +2,12 @@ import { FaceLandmarker, FilesetResolver }
   from '../node_modules/@mediapipe/tasks-vision/vision_bundle.mjs';
 
 // ---- tunable thresholds ----
-const REQUIRED_MS = 30000;   // continuous eye contact required
+// How long you must hold is user-configurable now; the main process owns the
+// value and enforces the floor, this is just the last-synced copy.
+let gateSeconds = 30;
+let minGateSeconds = 30;
+const requiredMs = () => gateSeconds * 1000;
+
 const GRACE_MS    = 700;     // allowed lapse (blinks) before progress resets
 const HEAD_YAW_MAX   = 0.38; // rad, left/right head turn
 const HEAD_PITCH_MAX = 0.34; // rad, up/down head tilt
@@ -12,7 +17,9 @@ const BLINK_MAX = 0.55;
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
 const views = ['install', 'home', 'gate', 'settings'];
+let currentView = null;
 function showView(name) {
+  currentView = name;
   views.forEach(v => $(`view-${v}`).classList.toggle('active', v === name));
 }
 
@@ -21,6 +28,13 @@ let statusTimer = null;
 async function refresh() {
   const s = await window.gazegate.getStatus();
   if (!s.installed) { showView('install'); return; }
+
+  // Land on home from a cold boot (nothing shown yet) or straight after install.
+  // Any other view — gate, settings — is the user's, so polling must not steal it.
+  if (currentView === null || currentView === 'install') showView('home');
+
+  gateSeconds = s.gateSeconds;
+  minGateSeconds = s.minGateSeconds;
 
   show('update-banner', s.needsUpdate);
 
@@ -43,7 +57,7 @@ async function refresh() {
       const m = Math.floor(s.remaining / 60), sec = s.remaining % 60;
       $('countdown').textContent = `${m}:${String(sec).padStart(2, '0')}`;
       show('btn-unlock', true);
-      $('btn-unlock').textContent = 'Unlock again — hold eye contact 30s';
+      $('btn-unlock').textContent = `Unlock again — hold eye contact ${gateSeconds}s`;
       break;
     }
     case 'sunday-open':
@@ -55,14 +69,14 @@ async function refresh() {
     case 'sunday-blocked':
       setBadge('blocked', 'Blocked · on for today');
       show('btn-unlock', true);
-      $('btn-unlock').textContent = 'Unlock — hold eye contact 30s';
+      $('btn-unlock').textContent = `Unlock — hold eye contact ${gateSeconds}s`;
       show('btn-sunday-open', true);
       show('btn-lock', false);
       break;
     default: // 'blocked'
       setBadge('blocked', 'Blocked');
       show('btn-unlock', true);
-      $('btn-unlock').textContent = 'Unlock — hold eye contact 30s';
+      $('btn-unlock').textContent = `Unlock — hold eye contact ${gateSeconds}s`;
   }
 }
 function startStatusPolling() {
@@ -140,7 +154,7 @@ async function runGate(purpose, title, sub) {
   $('gate-sub').textContent = sub;
   $('gate-status').textContent = 'Starting camera…';
   $('gate-status').className = 'gate-status';
-  $('gate-count').textContent = '30';
+  $('gate-count').textContent = String(gateSeconds);
   showView('gate');
 
   let stream, video = $('video'), ctx = $('ring').getContext('2d');
@@ -186,10 +200,10 @@ async function runGate(purpose, title, sub) {
       const inGrace = badSince !== null && (now - badSince) <= GRACE_MS;
       if (okState) held += dt;
       else if (badSince !== null && (now - badSince) > GRACE_MS) held = 0;
-      held = Math.min(Math.max(held, 0), REQUIRED_MS);
+      held = Math.min(Math.max(held, 0), requiredMs());
 
-      drawRing(ctx, held / REQUIRED_MS, okState || inGrace);
-      $('gate-count').textContent = Math.max(0, Math.ceil((REQUIRED_MS - held) / 1000));
+      drawRing(ctx, held / requiredMs(), okState || inGrace);
+      $('gate-count').textContent = Math.max(0, Math.ceil((requiredMs() - held) / 1000));
 
       const st = $('gate-status'), ev = lastEv;
       if (ev) {
@@ -202,7 +216,7 @@ async function runGate(purpose, title, sub) {
           `yaw ${ev.yaw.toFixed(2)}  pitch ${ev.pitch.toFixed(2)}  gaze ${ev.gaze.toFixed(2)}  blink ${ev.blink.toFixed(2)}`;
       }
 
-      if (held >= REQUIRED_MS) {
+      if (held >= requiredMs()) {
         st.textContent = 'Unlocked ✓'; st.className = 'gate-status good';
         cleanup(true);
         return;
@@ -227,7 +241,7 @@ $('btn-install').onclick = async () => {
 };
 
 $('btn-unlock').onclick = async () => {
-  const passed = await runGate('unlock', 'Hold eye contact', 'Look straight into the lens for 30 seconds. Look away and it resets.');
+  const passed = await runGate('unlock', 'Hold eye contact', `Look straight into the lens for ${gateSeconds} seconds. Look away and it resets.`);
   if (passed) { await window.gazegate.gatePassed('unlock'); }
   await refresh();
   showView('home');
@@ -251,27 +265,72 @@ $('btn-sunday-block').onclick = async () => {
 // Sunday: undo that and open back up — gated, since it's an escape.
 $('btn-sunday-open').onclick = async () => {
   const passed = await runGate('sunday-open', 'Eye contact to open Sunday',
-    'You turned blocking on for today. Opening back up needs 30 seconds of eye contact.');
+    `You turned blocking on for today. Opening back up needs ${gateSeconds} seconds of eye contact.`);
   if (passed) await window.gazegate.sundayClear();
   await refresh();
   showView('home');
 };
 
 $('btn-settings').onclick = async () => {
-  const passed = await runGate('settings', 'Eye contact to open settings', 'Changing what gets blocked needs the same commitment. 30 seconds.');
+  const passed = await runGate('settings', 'Eye contact to open settings', `Changing what gets blocked needs the same commitment. ${gateSeconds} seconds.`);
   if (!passed) { showView('home'); return; }
   await window.gazegate.gatePassed('settings');
-  const sites = await window.gazegate.getSites();
+
+  const [core, sites] = await Promise.all([
+    window.gazegate.getCoreSites(),
+    window.gazegate.getSites(),
+  ]);
+  $('core-sites').innerHTML = core.map(s => `<li>${s}</li>`).join('');
   $('sites').value = sites.join('\n');
+  $('gate-seconds').value = gateSeconds;
+  $('gate-seconds').min = minGateSeconds;
+  $('min-gate').textContent = minGateSeconds;
+  $('gate-msg').textContent = '';
   showView('settings');
 };
 
 $('btn-settings-back').onclick = () => showView('home');
+
 $('btn-save-sites').onclick = async () => {
   const list = $('sites').value.split('\n').map(s => s.trim()).filter(Boolean);
   await window.gazegate.setSites(list);
+  $('sites').value = (await window.gazegate.getSites()).join('\n');
   $('btn-save-sites').textContent = 'Saved ✓';
-  setTimeout(() => ($('btn-save-sites').textContent = 'Save sites'), 1200);
+  setTimeout(() => ($('btn-save-sites').textContent = 'Save extra sites'), 1200);
+};
+
+// Longer is free. Shorter is an escape, so it costs one stare at the *current*
+// length — same rule the Sunday buttons follow.
+$('btn-save-gate').onclick = async () => {
+  const msg = $('gate-msg');
+  const want = Math.round(Number($('gate-seconds').value));
+  if (!Number.isFinite(want) || want < minGateSeconds) {
+    msg.style.color = 'var(--danger)';
+    msg.textContent = `Minimum is ${minGateSeconds} seconds.`;
+    $('gate-seconds').value = gateSeconds;
+    return;
+  }
+  if (want === gateSeconds) { msg.style.color = ''; msg.textContent = 'Unchanged.'; return; }
+
+  if (want < gateSeconds) {
+    const from = gateSeconds;
+    const passed = await runGate('settings', 'Eye contact to shorten the stare',
+      `Going from ${from}s down to ${want}s makes this easier on you. Hold ${from} seconds first.`);
+    if (!passed) {
+      showView('settings');
+      $('gate-seconds').value = gateSeconds;
+      msg.style.color = 'var(--danger)';
+      msg.textContent = 'Not changed — the stare was not completed.';
+      return;
+    }
+    showView('settings');
+  }
+
+  const r = await window.gazegate.setGateSeconds(want);
+  gateSeconds = r.gateSeconds;
+  $('gate-seconds').value = gateSeconds;
+  msg.style.color = 'var(--accent)';
+  msg.textContent = `Saved — ${gateSeconds} seconds.`;
 };
 
 $('btn-quit').onclick = async () => {
@@ -280,7 +339,7 @@ $('btn-quit').onclick = async () => {
 };
 
 $('btn-uninstall').onclick = async () => {
-  const passed = await runGate('uninstall', 'Eye contact to turn it all off', 'This removes blocking entirely and unblocks every site. 30 seconds.');
+  const passed = await runGate('uninstall', 'Eye contact to turn it all off', `This removes blocking entirely and unblocks every site. ${gateSeconds} seconds.`);
   if (passed) await window.gazegate.gatePassed('uninstall');
   else showView('settings');
 };
@@ -291,9 +350,4 @@ window.gazegate.onNavigate((view) => {
 });
 
 // boot
-refresh().then(() => {
-  startStatusPolling();
-  // Wait two frames so the active view is laid out and painted, then tell the
-  // main process to force a compositor repaint (macOS blank-window workaround).
-  requestAnimationFrame(() => requestAnimationFrame(() => window.gazegate.notifyReady()));
-});
+refresh().then(startStatusPolling);
