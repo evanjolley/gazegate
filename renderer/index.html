@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' data: blob:;" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>GazeGate</title>
+</head>
+<body>
+
+  <!-- INSTALL -->
+  <section id="view-install" class="view">
+    <h1>GazeGate</h1>
+    <div class="spacer"></div>
+    <h2>One-time setup</h2>
+    <p>GazeGate blocks the sites you choose across <b>every browser</b> by installing a small background helper. macOS will ask for your admin password once.</p>
+    <p style="margin-top:10px">After setup, the sites stay blocked. To unlock them for 10 minutes, you'll hold eye contact with your camera for 30 seconds.</p>
+    <div class="spacer"></div>
+    <div class="btn-row">
+      <button class="primary" id="btn-install">Install &amp; start blocking</button>
+    </div>
+    <p id="install-err" class="hint" style="color:var(--danger);margin-top:10px"></p>
+  </section>
+
+  <!-- HOME -->
+  <section id="view-home" class="view">
+    <h1>GazeGate</h1>
+    <div id="update-banner" class="banner" style="display:none">
+      Blocker update available. <a class="link" id="btn-update">Apply now</a>
+    </div>
+    <div id="status-badge" class="badge"><span class="dot blocked"></span><span id="status-text">Blocked</span></div>
+    <div id="countdown-wrap" style="display:none">
+      <div class="big-num" id="countdown">10:00</div>
+      <p>until the sites lock again</p>
+    </div>
+    <p id="sunday-note" class="hint" style="display:none;margin-top:12px">It's Sunday — your rest day. The blocks are off by default.</p>
+    <div class="spacer"></div>
+    <div class="btn-row">
+      <button class="primary" id="btn-unlock">Unlock — hold eye contact 30s</button>
+      <button class="primary" id="btn-sunday-block" style="display:none">Block for the rest of today</button>
+      <button class="danger" id="btn-sunday-open" style="display:none">Open for the rest of today (eye contact)</button>
+      <div class="btn-inline">
+        <button id="btn-lock">Lock now</button>
+        <button id="btn-settings">Settings</button>
+      </div>
+      <button class="danger" id="btn-quit">Quit (sites stay blocked)</button>
+    </div>
+  </section>
+
+  <!-- GATE -->
+  <section id="view-gate" class="view">
+    <h1 id="gate-title">Hold eye contact</h1>
+    <p id="gate-sub">Look straight into your camera. Keep looking for 30 seconds. Look away and it resets.</p>
+    <div class="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas class="ring" id="ring" width="316" height="316"></canvas>
+      <div class="gate-count" id="gate-count">30</div>
+    </div>
+    <div class="gate-status" id="gate-status">Starting camera…</div>
+    <div class="debug" id="debug"></div>
+    <div class="spacer"></div>
+    <div class="btn-row">
+      <button id="btn-gate-cancel">Cancel</button>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section id="view-settings" class="view">
+    <h1>Settings</h1>
+    <p>One domain per line. Include <span class="hint">www.</span> variants. Changes apply within a couple seconds.</p>
+    <textarea id="sites" spellcheck="false"></textarea>
+    <div class="btn-inline">
+      <button class="primary" id="btn-save-sites">Save sites</button>
+      <button id="btn-settings-back">Back</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="danger" id="btn-uninstall">Turn off blocking completely (uninstall)</button>
+  </section>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

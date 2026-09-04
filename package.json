@@ -1,0 +1,32 @@
+{
+  "name": "gazegate",
+  "version": "1.0.0",
+  "description": "Block distracting sites until you hold 60 seconds of eye contact with your camera.",
+  "main": "main.js",
+  "author": "Evan Jolley",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "GAZEGATE_DEV=1 electron .",
+    "dist": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.gazegate.app",
+    "productName": "GazeGate",
+    "files": [
+      "**/*",
+      "!scripts/**/*.template"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": "dir"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.18"
+  }
+}
