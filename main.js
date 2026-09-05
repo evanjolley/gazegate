@@ -72,24 +72,7 @@ function refreshTrayMenu() {
     { label: `Unlock (${secs}s eye contact)…`, click: () => showWindow('gate-unlock') },
     { label: 'Lock now', click: () => { blocker.lockNow(); } },
     { type: 'separator' },
-    { label: `Quit GazeGate (${secs}s eye contact)\u2026`, click: () => showWindow('gate-quit') },
-  ]));
-}
-
-// The default Electron menu carries a ⌘Q that quits without the stare, which
-// would make the gated tray Quit pointless. Replace it with an Edit-only menu:
-// clipboard shortcuts keep working in the sites field, ⌘Q does nothing. This is
-// deliberately NOT done by cancelling 'before-quit' — that fires on logout and
-// restart too, and blocking it would hang a shutdown.
-function installAppMenu() {
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
-      ],
-    },
+    { label: 'Quit GazeGate', click: () => { quitting = true; app.quit(); } },
   ]));
 }
 
@@ -196,7 +179,6 @@ app.whenReady().then(async () => {
   const ses = require('electron').session.defaultSession;
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
 
-  installAppMenu();
   createTray();
   createWindow(); // ready-to-show reveals it once painted
 
