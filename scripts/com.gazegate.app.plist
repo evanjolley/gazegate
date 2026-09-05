@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.gazegate.app</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/GazeGate.app/Contents/MacOS/GazeGate</string>
+        <string>--hidden</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <!-- Respawn on a crash or a kill, but let a deliberate (stare-gated) quit
+         stick. app.quit() exits 0; anything unexpected does not. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key><false/>
+    </dict>
+    <key>ProcessType</key><string>Interactive</string>
+    <key>StandardOutPath</key><string>/tmp/gazegate-app.log</string>
+    <key>StandardErrorPath</key><string>/tmp/gazegate-app.log</string>
+</dict>
+</plist>

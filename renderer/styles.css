@@ -101,3 +101,42 @@ a.link { color: var(--accent); text-decoration: none; cursor: pointer; font-size
   margin-top: 10px; cursor: pointer; font-size: 13px; color: var(--text);
 }
 .toggle-row input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+/* ---- Home stats, sitting in what used to be dead space ---- */
+.stats { flex: 1; display: flex; flex-direction: column; align-items: center;
+         justify-content: center; gap: 8px; cursor: pointer; min-height: 0; }
+.stats:hover .tap { color: var(--accent); }
+.stat-row { display: flex; gap: 26px; }
+.stat-row div { display: flex; flex-direction: column; align-items: center; }
+.stat-row b { font-size: 21px; font-weight: 650; letter-spacing: -0.5px; }
+.stat-row span { font-size: 11px; color: var(--muted); margin-top: 1px; }
+.stat-row.big { justify-content: space-around; width: 100%; margin-bottom: 4px; }
+.stat-row.big b { font-size: 26px; }
+
+#clock { width: 152px; height: 152px; flex: 0 0 auto; }
+.clock-bar { stroke: var(--accent); stroke-linecap: round; }
+.clock-tick { fill: var(--muted); font-size: 11px; }
+.clock-face { fill: none; stroke: var(--ring-bg); stroke-width: 1; }
+.clock-now { fill: var(--text); }
+
+.streak { font-size: 12px; color: var(--muted); }
+.streak b { color: var(--text); font-weight: 650; }
+.dots { display: flex; gap: 3px; align-items: center; }
+.dot-day { width: 6px; height: 6px; border-radius: 50%; }
+.tap { font-size: 11px; margin-top: 2px; }
+
+/* ---- History ---- */
+.grid { display: flex; gap: 3px; margin-top: 10px; overflow-x: auto; padding-bottom: 4px; }
+.grid-col { display: flex; flex-direction: column; gap: 3px; }
+.grid-cell { width: 11px; height: 11px; border-radius: 2px; }
+.hours { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin-top: 10px; }
+.hour-bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 1px; }
+.hour-bar.empty { background: var(--ring-bg); }
+.hour-axis { display: flex; justify-content: space-between; font-size: 10px;
+             color: var(--muted); margin-top: 4px; }
+.months { margin-top: 8px; }
+.month-row { display: flex; align-items: center; gap: 10px; font-size: 12px;
+             padding: 5px 0; border-bottom: 1px solid #1e232b; }
+.month-row .name { width: 74px; color: var(--muted); }
+.month-row .bar { height: 6px; background: var(--accent); border-radius: 3px; min-width: 2px; }
+.month-row .n { color: var(--text); font-weight: 600; }

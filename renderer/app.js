@@ -19,7 +19,7 @@ const BLINK_MAX = 0.55;
 
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
-const views = ['install', 'home', 'gate', 'settings'];
+const views = ['install', 'home', 'gate', 'settings', 'history'];
 let currentView = null;
 function showView(name) {
   currentView = name;
@@ -43,6 +43,7 @@ async function refresh() {
   escalate = s.escalate;
 
   show('update-banner', s.needsUpdate);
+  window.gazegate.getStats().then(paintHomeStats).catch(() => {});
 
   const badge = $('status-badge');
   const setBadge = (cls, label) =>
@@ -397,6 +398,159 @@ $('btn-uninstall').onclick = async () => {
   if (passed) await window.gazegate.gatePassed('uninstall');
   else showView('settings');
 };
+
+// ---- Stats ----
+const SVG = 'http://www.w3.org/2000/svg';
+const el = (name, attrs) => {
+  const n = document.createElementNS(SVG, name);
+  for (const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+};
+
+// Colour ramp shared by the day dots and the history grid.
+function dayFill(d) {
+  if (d.off) return '#3a3f4a';                       // blocker was not working
+  if (!d.count) return 'transparent';                // clean
+  if (d.count <= 2) return 'rgba(74,222,128,0.45)';
+  if (d.count <= 5) return 'rgba(74,222,128,0.75)';
+  return 'var(--accent)';
+}
+const dayStroke = (d) => (!d.off && !d.count ? '1px solid #2a2f3a' : 'none');
+
+// 24 spokes round a dial, midnight at the top, length by unlock count.
+function drawClock(hours) {
+  const svg = $('clock');
+  svg.innerHTML = '';
+  const cx = 100, cy = 100, rIn = 44, rOut = 90;
+  const peak = Math.max(1, ...hours);
+
+  svg.appendChild(el('circle', { cx, cy, r: rIn, class: 'clock-face' }));
+
+  hours.forEach((n, h) => {
+    const a = (h / 24) * Math.PI * 2 - Math.PI / 2;
+    const len = n ? rIn + 6 + (rOut - rIn - 6) * (n / peak) : rIn + 3;
+    svg.appendChild(el('line', {
+      x1: cx + Math.cos(a) * rIn, y1: cy + Math.sin(a) * rIn,
+      x2: cx + Math.cos(a) * len, y2: cy + Math.sin(a) * len,
+      'stroke-width': 5,
+      stroke: n ? 'var(--accent)' : 'var(--ring-bg)',
+      class: 'clock-bar',
+    }));
+  });
+
+  [[0, '12a'], [6, '6a'], [12, '12p'], [18, '6p']].forEach(([h, label]) => {
+    const a = (h / 24) * Math.PI * 2 - Math.PI / 2;
+    svg.appendChild(Object.assign(el('text', {
+      x: cx + Math.cos(a) * 26, y: cy + Math.sin(a) * 26 + 4,
+      'text-anchor': 'middle', class: 'clock-tick',
+    }), { textContent: label }));
+  });
+
+  // A small mark for the hour it is now, so the dial reads as a clock.
+  const na = (new Date().getHours() / 24) * Math.PI * 2 - Math.PI / 2;
+  svg.appendChild(el('circle', {
+    cx: cx + Math.cos(na) * (rOut + 4), cy: cy + Math.sin(na) * (rOut + 4),
+    r: 2.5, class: 'clock-now',
+  }));
+}
+
+function paintHomeStats(st) {
+  const box = $('stats');
+  if (!st || !st.hasLog) { box.style.display = 'none'; return; }
+  box.style.display = 'flex';
+  $('st-today').textContent = st.today;
+  $('st-week').textContent = st.week;
+  $('st-all').textContent = st.allTime;
+
+  drawClock(st.hours);
+
+  $('st-streak').innerHTML = st.currentStreak
+    ? `<b>${st.currentStreak}</b> clean day${st.currentStreak === 1 ? '' : 's'} in a row · best <b>${st.longestStreak}</b>`
+    : `best clean streak <b>${st.longestStreak}</b> days`;
+
+  const last30 = st.days.slice(-30);
+  $('st-dots').innerHTML = '';
+  for (const d of last30) {
+    const dot = document.createElement('div');
+    dot.className = 'dot-day';
+    dot.style.background = dayFill(d);
+    dot.style.border = dayStroke(d);
+    dot.title = `${d.date} · ${d.off ? 'blocker off' : d.count + ' unlocks'}`;
+    $('st-dots').appendChild(dot);
+  }
+}
+
+function paintHistory(st) {
+  $('hist-since').textContent = `Since ${st.since}. ${st.allTime} unlocks, ${st.unlockMinutes} minutes each.`;
+  $('h-all').textContent = st.allTime;
+  $('h-clean').textContent = st.cleanDays;
+  $('h-long').textContent = st.longestStreak;
+
+  // Calendar, one column per week, Sunday at the top.
+  const grid = $('h-grid');
+  grid.innerHTML = '';
+  let col = null;
+  st.days.forEach((d, i) => {
+    if (d.weekday === 0 || i === 0) {
+      col = document.createElement('div');
+      col.className = 'grid-col';
+      // Pad the first column so weekdays line up across rows.
+      if (i === 0) for (let k = 0; k < d.weekday; k++) {
+        const blank = document.createElement('div');
+        blank.className = 'grid-cell';
+        col.appendChild(blank);
+      }
+      grid.appendChild(col);
+    }
+    const cell = document.createElement('div');
+    cell.className = 'grid-cell';
+    cell.style.background = dayFill(d);
+    cell.style.border = dayStroke(d);
+    cell.title = `${d.date} · ${d.off ? 'blocker off' : d.count + ' unlocks'}`;
+    col.appendChild(cell);
+  });
+
+  const peak = Math.max(1, ...st.hours);
+  $('h-hours').innerHTML = st.hours.map((n, h) =>
+    `<div class="hour-bar${n ? '' : ' empty'}" style="height:${n ? Math.round((n / peak) * 100) : 2}%" title="${h}:00 · ${n}"></div>`
+  ).join('');
+  if (!$('h-hours').nextElementSibling?.classList.contains('hour-axis')) {
+    const axis = document.createElement('div');
+    axis.className = 'hour-axis';
+    axis.innerHTML = '<span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>11p</span>';
+    $('h-hours').after(axis);
+  }
+
+  const byMonth = new Map();
+  for (const d of st.days) {
+    const k = d.date.slice(0, 7);
+    byMonth.set(k, (byMonth.get(k) || 0) + d.count);
+  }
+  const mPeak = Math.max(1, ...byMonth.values());
+  $('h-months').innerHTML = [...byMonth.entries()].map(([k, n]) => {
+    const name = new Date(k + '-01T00:00:00').toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    return `<div class="month-row"><span class="name">${name}</span>
+      <span class="bar" style="width:${Math.round((n / mPeak) * 60)}%"></span>
+      <span class="n">${n}</span></div>`;
+  }).join('');
+
+  $('h-outages').innerHTML = st.outages.length
+    ? st.outages.map(o => {
+        const len = o.minutes >= 60 ? `${Math.round(o.minutes / 60)}h` : `${o.minutes}m`;
+        return `<div class="month-row"><span class="name">${o.start}</span>
+          <span class="n">${len}</span></div>`;
+      }).join('')
+    : '<p class="hint">None recorded.</p>';
+}
+
+$('stats').onclick = async () => {
+  const st = await window.gazegate.getStats();
+  if (!st.hasLog) return;
+  paintHistory(st);
+  showView('history');
+};
+
+$('btn-history-back').onclick = () => showView('home');
 
 window.gazegate.onNavigate((view) => {
   if (view === 'gate-unlock') $('btn-unlock').click();

@@ -35,7 +35,17 @@
       <p>until the sites lock again</p>
     </div>
     <p id="sunday-note" class="hint" style="display:none;margin-top:12px">It's Sunday — your rest day. The blocks are off by default.</p>
-    <div class="spacer"></div>
+    <div id="stats" class="stats">
+      <div class="stat-row">
+        <div><b id="st-today">0</b><span>today</span></div>
+        <div><b id="st-week">0</b><span>week</span></div>
+        <div><b id="st-all">0</b><span>all time</span></div>
+      </div>
+      <svg id="clock" viewBox="0 0 200 200" aria-label="unlocks by hour"></svg>
+      <div id="st-streak" class="streak"></div>
+      <div id="st-dots" class="dots" aria-label="last 30 days"></div>
+      <p class="hint tap">Full history →</p>
+    </div>
     <div class="btn-row">
       <button class="primary" id="btn-unlock">Unlock — hold eye contact 30s</button>
       <button class="primary" id="btn-sunday-block" style="display:none">Block for the rest of today</button>
@@ -66,6 +76,40 @@
   </section>
 
   <!-- SETTINGS -->
+  <section id="view-history" class="view">
+    <h1>History</h1>
+    <p class="hint" id="hist-since"></p>
+
+    <div class="scroll">
+      <div class="stat-row big">
+        <div><b id="h-all">0</b><span>unlocks</span></div>
+        <div><b id="h-clean">0</b><span>clean days</span></div>
+        <div><b id="h-long">0</b><span>best streak</span></div>
+      </div>
+
+      <h2 class="sec">Every day</h2>
+      <p class="hint">One square per day. Brighter means more unlocks. Hollow means clean.
+        Grey means the blocker was off.</p>
+      <div id="h-grid" class="grid"></div>
+
+      <h2 class="sec">By hour</h2>
+      <p class="hint">When you reach for it.</p>
+      <div id="h-hours" class="hours"></div>
+
+      <h2 class="sec">By month</h2>
+      <div id="h-months" class="months"></div>
+
+      <h2 class="sec">When the blocker was off</h2>
+      <p class="hint">Not unlocks. These are stretches where blocking had stopped working,
+        kept separate so the numbers above stay honest.</p>
+      <div id="h-outages" class="months"></div>
+    </div>
+
+    <div class="btn-row">
+      <button id="btn-history-back">Back</button>
+    </div>
+  </section>
+
   <section id="view-settings" class="view">
     <h1>Settings</h1>
 

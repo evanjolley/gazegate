@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, systemPreferences, dialog, screen } = require('electron');
 const path = require('path');
 const blocker = require('./blocker');
+const stats = require('./stats');
 
 const UNLOCK_MINUTES = 10;
 const DEV = !!process.env.GAZEGATE_DEV;
@@ -168,6 +169,7 @@ ipcMain.handle('get-status', () => {
   };
 });
 
+ipcMain.handle('get-stats', () => stats.summary());
 ipcMain.handle('get-core-sites', () => blocker.CORE_SITES);
 ipcMain.handle('get-gate-seconds', () => blocker.readGateSeconds());
 

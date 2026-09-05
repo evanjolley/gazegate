@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('gazegate', {
   setGateSeconds: (n) => ipcRenderer.invoke('set-gate-seconds', n),
   setEscalate: (on) => ipcRenderer.invoke('set-escalate', on),
   getCoreSites: () => ipcRenderer.invoke('get-core-sites'),
+  getStats: () => ipcRenderer.invoke('get-stats'),
 });
