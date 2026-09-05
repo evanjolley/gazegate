@@ -8,9 +8,10 @@ const DEV = !!process.env.GAZEGATE_DEV;
 let win = null;
 let tray = null;
 let quitting = false;
-// Whether the window should appear once the renderer paints. False when macOS
-// launched us at login — we want the menu-bar icon only, no window in your face.
-let pendingShow = true;
+// Whether the window should appear once the renderer paints. False when the
+// LaunchAgent started us (login, or a respawn after a crash) — we want the
+// menu-bar icon only, no window in your face.
+let pendingShow = !process.argv.includes('--hidden');
 
 function createWindow() {
   win = new BrowserWindow({
@@ -71,7 +72,24 @@ function refreshTrayMenu() {
     { label: `Unlock (${secs}s eye contact)…`, click: () => showWindow('gate-unlock') },
     { label: 'Lock now', click: () => { blocker.lockNow(); } },
     { type: 'separator' },
-    { label: 'Quit GazeGate', click: () => { quitting = true; app.quit(); } },
+    { label: `Quit GazeGate (${secs}s eye contact)\u2026`, click: () => showWindow('gate-quit') },
+  ]));
+}
+
+// The default Electron menu carries a ⌘Q that quits without the stare, which
+// would make the gated tray Quit pointless. Replace it with an Edit-only menu:
+// clipboard shortcuts keep working in the sites field, ⌘Q does nothing. This is
+// deliberately NOT done by cancelling 'before-quit' — that fires on logout and
+// restart too, and blocking it would hang a shutdown.
+function installAppMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      ],
+    },
   ]));
 }
 
@@ -165,14 +183,11 @@ app.whenReady().then(async () => {
   // Menu-bar-only: no Dock icon, no ⌘-Tab entry. The tray is the whole UI.
   if (app.dock) app.dock.hide();
 
-  // Keep the icon pinned across restarts. Skipped in dev, where the executable
-  // is node_modules' Electron binary and registering it would be noise.
-  if (!DEV) {
-    try {
-      app.setLoginItemSettings({ openAtLogin: true, openAsHidden: true });
-      pendingShow = !app.getLoginItemSettings().wasOpenedAtLogin;
-    } catch {}
-  }
+  // Launch-at-login and crash recovery are owned by the LaunchAgent
+  // (~/Library/LaunchAgents/com.gazegate.app.plist), not by this process.
+  // setLoginItemSettings used to live here; it registered whichever bundle
+  // happened to be running, which is how the login item ended up pointing at
+  // a build inside dist/ instead of /Applications. One mechanism, not two.
 
   // Allow camera access for the gate.
   if (systemPreferences.askForMediaAccess) {
@@ -181,6 +196,7 @@ app.whenReady().then(async () => {
   const ses = require('electron').session.defaultSession;
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
 
+  installAppMenu();
   createTray();
   createWindow(); // ready-to-show reveals it once painted
 

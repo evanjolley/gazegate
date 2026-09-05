@@ -334,8 +334,12 @@ $('btn-save-gate').onclick = async () => {
 };
 
 $('btn-quit').onclick = async () => {
-  // Quitting doesn't unblock anything — the daemon keeps running. No gate needed.
-  await window.gazegate.gatePassed('quit');
+  // Quitting doesn't unblock anything — the daemon keeps running — but it does
+  // take away the menu-bar icon, and the LaunchAgent only respawns on crash.
+  // Losing the app on purpose costs a stare, like every other loosening.
+  const passed = await runGate('quit', 'Eye contact to quit', `The daemon keeps blocking either way. ${gateSeconds} seconds.`);
+  if (passed) await window.gazegate.gatePassed('quit');
+  else showView('home');
 };
 
 $('btn-uninstall').onclick = async () => {
@@ -346,6 +350,7 @@ $('btn-uninstall').onclick = async () => {
 
 window.gazegate.onNavigate((view) => {
   if (view === 'gate-unlock') $('btn-unlock').click();
+  else if (view === 'gate-quit') $('btn-quit').click();
   else showView('home');
 });
 

@@ -15,7 +15,9 @@
     "productName": "GazeGate",
     "files": [
       "**/*",
-      "!scripts/**/*.template"
+      "!scripts/**/*.template",
+      "!build/**/*",
+      "!dist/**/*"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -23,7 +25,10 @@
       "extendInfo": {
         "LSUIElement": true,
         "NSCameraUsageDescription": "GazeGate needs the camera to verify you are holding eye contact before it unlocks a site."
-      }
+      },
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
     }
   },
   "devDependencies": {
