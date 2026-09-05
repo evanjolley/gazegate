@@ -1,38 +1,38 @@
-// blocker.js — talks to the root daemon by writing user-writable state files,
-// and installs/uninstalls the daemon (the only steps that need admin).
-const { app } = require('electron');
+// blocker.js — the app's half of the conversation with the root daemon.
+//
+// The app is unprivileged and no longer owns any state that the block decision
+// depends on. It reads a root-owned state.json, which is world readable, and it
+// asks for changes over a unix socket. The daemon checks the caller's code
+// signature before honouring anything, so a hand-written request is refused.
+//
+// Before this, unlock_until lived in a file the user owned, and one `echo`
+// defeated the entire eye-contact gate with no password.
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const net = require('net');
 const { execFile } = require('child_process');
 
-const USER_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'GazeGate');
-const UNLOCK_FILE = path.join(USER_DIR, 'unlock_until');
-const SUNDAY_FILE = path.join(USER_DIR, 'sunday_block_until');
-const SITES_FILE = path.join(USER_DIR, 'sites.txt');
-const GATE_FILE = path.join(USER_DIR, 'gate_seconds');
-// Opt-in. Off means the stare costs the same all day, which is how this shipped.
-const ESCALATE_FILE = path.join(USER_DIR, 'escalate');
-// "YYYY-MM-DD n" — n unlocks granted on that local date.
-const UNLOCKS_FILE = path.join(USER_DIR, 'unlocks_today');
+const SYS_DIR = '/Library/Application Support/GazeGate';
+const STATE_FILE = path.join(SYS_DIR, 'state.json');
+const SYS_DAEMON = path.join(SYS_DIR, 'gazegated');
+const VERSION_FILE = path.join(SYS_DIR, 'daemon_version');
+const SOCKET = '/var/run/gazegate.sock';
+const PLIST_DST = '/Library/LaunchDaemons/com.gazegate.blocker.plist';
 
-// Bump when scripts/gazegate-daemon.sh changes behavior; drives the update prompt.
-const DAEMON_VERSION = 3;
+// Where state used to live, kept only so an existing install can be carried over
+// once. Nothing reads these after the migration.
+const LEGACY_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'GazeGate');
 
-// Floor for the stare. Enforced here, in the trusted main process, rather than
-// in the renderer — the renderer only ever asks.
+// Bump whenever the daemon changes behavior; drives the update prompt.
+const DAEMON_VERSION = 4;
+
 const MIN_GATE_SECONDS = 30;
 const DEFAULT_GATE_SECONDS = 30;
-// Ceiling for the escalated price, so a bad day can't lock you out for an hour.
 const MAX_GATE_SECONDS = 600;
 
-const SYS_DIR = '/Library/Application Support/GazeGate';
-const SYS_DAEMON = path.join(SYS_DIR, 'gazegate-daemon.sh');
-const PLIST_DST = '/Library/LaunchDaemons/com.gazegate.blocker.plist';
-const DAEMON_LABEL = 'com.gazegate.blocker';
-
-// Permanently blocked. Not editable from the UI, and the daemon unions these in
-// regardless of what sites.txt says — so hand-editing the file can't drop them.
+// Permanently blocked. The daemon unions these in unconditionally, so removing
+// them from the extras list cannot unblock them. Keep in step with gazegated.swift.
 const CORE_SITES = [
   'x.com', 'www.x.com', 'twitter.com', 'www.twitter.com',
   'instagram.com', 'www.instagram.com',
@@ -40,122 +40,56 @@ const CORE_SITES = [
 ];
 const isCore = (s) => CORE_SITES.includes(s.trim().toLowerCase());
 
-function ensureUserDir() {
-  fs.mkdirSync(USER_DIR, { recursive: true });
-  if (!fs.existsSync(UNLOCK_FILE)) fs.writeFileSync(UNLOCK_FILE, '0');
-  if (!fs.existsSync(SUNDAY_FILE)) fs.writeFileSync(SUNDAY_FILE, '0');
-  if (!fs.existsSync(GATE_FILE)) fs.writeFileSync(GATE_FILE, String(DEFAULT_GATE_SECONDS));
-  if (!fs.existsSync(ESCALATE_FILE)) fs.writeFileSync(ESCALATE_FILE, '0');
-  if (!fs.existsSync(UNLOCKS_FILE)) fs.writeFileSync(UNLOCKS_FILE, '');
-  // sites.txt now holds *extras only*. Older installs listed the core sites
-  // here too; strip them so the settings list doesn't offer to remove them.
-  if (!fs.existsSync(SITES_FILE)) fs.writeFileSync(SITES_FILE, '');
-  else {
-    const extras = rawSites().filter(s => !isCore(s));
-    if (extras.length !== rawSites().length) {
-      fs.writeFileSync(SITES_FILE, extras.length ? extras.join('\n') + '\n' : '');
-    }
-  }
+// ---- Reads. Plain file reads; the state is world readable on purpose. ----
+
+function readState() {
+  try { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch { return {}; }
 }
 
-function rawSites() {
-  try {
-    return fs.readFileSync(SITES_FILE, 'utf8')
-      .split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
-  } catch { return []; }
+function todayKey() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 function readGateSeconds() {
-  try {
-    const v = parseInt(fs.readFileSync(GATE_FILE, 'utf8').trim(), 10);
-    return Number.isFinite(v) ? Math.max(MIN_GATE_SECONDS, v) : DEFAULT_GATE_SECONDS;
-  } catch { return DEFAULT_GATE_SECONDS; }
+  const v = parseInt(readState().gate_seconds, 10);
+  return Number.isFinite(v) ? Math.max(MIN_GATE_SECONDS, v) : DEFAULT_GATE_SECONDS;
 }
 
-function writeGateSeconds(n) {
-  ensureUserDir();
-  const v = Math.max(MIN_GATE_SECONDS, Math.round(Number(n) || DEFAULT_GATE_SECONDS));
-  fs.writeFileSync(GATE_FILE, String(v));
-  return v;
-}
+function readEscalate() { return readState().escalate === true; }
 
-// ---- Rising price ----
-// Local date, not UTC — the reset should land on your midnight.
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function readEscalate() {
-  try { return fs.readFileSync(ESCALATE_FILE, 'utf8').trim() === '1'; } catch { return false; }
-}
-
-function writeEscalate(on) {
-  ensureUserDir();
-  fs.writeFileSync(ESCALATE_FILE, on ? '1' : '0');
-  return !!on;
-}
-
-// Unlocks granted so far today. A stale date reads as zero, which is the reset.
 function unlocksToday() {
-  try {
-    const [date, n] = fs.readFileSync(UNLOCKS_FILE, 'utf8').trim().split(/\s+/);
-    if (date !== today()) return 0;
-    const v = parseInt(n, 10);
-    return Number.isFinite(v) && v > 0 ? v : 0;
-  } catch { return 0; }
+  const s = readState();
+  if (s.unlocks_date !== todayKey()) return 0;
+  const v = parseInt(s.unlocks_count, 10);
+  return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-function bumpUnlocksToday() {
-  ensureUserDir();
-  const n = unlocksToday() + 1;
-  fs.writeFileSync(UNLOCKS_FILE, `${today()} ${n}`);
-  return n;
-}
-
-// What the next stare actually costs. Doubles per unlock already taken today.
+// Mirror of the daemon's own sum, so the UI can label a button without a round trip.
 function effectiveGateSeconds() {
   const base = readGateSeconds();
   if (!readEscalate()) return base;
   return Math.min(MAX_GATE_SECONDS, base * Math.pow(2, unlocksToday()));
 }
 
-function isInstalled() {
-  return fs.existsSync(SYS_DAEMON) && fs.existsSync(PLIST_DST);
+function unlockUntil() {
+  const v = parseInt(readState().unlock_until, 10);
+  return Number.isFinite(v) ? v : 0;
 }
 
-function installedDaemonVersion() {
-  try {
-    const s = fs.readFileSync(SYS_DAEMON, 'utf8');
-    const m = s.match(/GAZEGATE_DAEMON_VERSION=(\d+)/);
-    return m ? parseInt(m[1], 10) : 1;
-  } catch { return 0; }
-}
-
-function needsUpdate() {
-  return isInstalled() && installedDaemonVersion() < DAEMON_VERSION;
-}
-
-// ---- Sunday "re-arm for the rest of today" ----
 function readSundayBlockUntil() {
-  try {
-    const v = parseInt(fs.readFileSync(SUNDAY_FILE, 'utf8').trim(), 10);
-    return Number.isFinite(v) ? v : 0;
-  } catch { return 0; }
+  const v = parseInt(readState().sunday_block_until, 10);
+  return Number.isFinite(v) ? v : 0;
 }
 
-function setSundayBlockTonight() {
-  ensureUserDir();
-  const d = new Date();
-  d.setHours(24, 0, 0, 0); // upcoming local midnight
-  const epoch = Math.floor(d.getTime() / 1000);
-  fs.writeFileSync(SUNDAY_FILE, String(epoch));
-  return epoch;
+function readSites() {
+  const list = readState().sites;
+  return Array.isArray(list) ? list.filter((s) => !isCore(s)) : [];
 }
 
-function clearSundayBlock() {
-  ensureUserDir();
-  fs.writeFileSync(SUNDAY_FILE, '0');
+function secondsRemaining() {
+  return Math.max(0, unlockUntil() - Math.floor(Date.now() / 1000));
 }
 
 // Mirror of the daemon's decision, for the UI.
@@ -163,8 +97,7 @@ function effectiveState() {
   const now = Math.floor(Date.now() / 1000);
   const uu = unlockUntil();
   if (now < uu) return { mode: 'unlocked', remaining: uu - now };
-  const isSunday = new Date().getDay() === 0; // 0 = Sunday in JS
-  if (isSunday) {
+  if (new Date().getDay() === 0) {
     return now < readSundayBlockUntil()
       ? { mode: 'sunday-blocked', remaining: 0 }
       : { mode: 'sunday-open', remaining: 0 };
@@ -172,52 +105,100 @@ function effectiveState() {
   return { mode: 'blocked', remaining: 0 };
 }
 
-// Grant a browsing window: daemon unblocks while now < unlock_until.
-function unlockFor(minutes) {
-  ensureUserDir();
-  const until = Math.floor(Date.now() / 1000) + Math.round(minutes * 60);
-  fs.writeFileSync(UNLOCK_FILE, String(until));
-  bumpUnlocksToday(); // this is what makes the next one cost more
-  return until;
+// ---- Writes. Every one of these is a request the daemon may refuse. ----
+
+function request(msg) {
+  return new Promise((resolve, reject) => {
+    const sock = net.connect(SOCKET);
+    let buf = '';
+    let settled = false;
+    const finish = (err, val) => {
+      if (settled) return;
+      settled = true;
+      try { sock.destroy(); } catch {}
+      err ? reject(err) : resolve(val);
+    };
+    sock.setTimeout(5000, () => finish(new Error('daemon did not answer')));
+    // A refusal arrives just before the daemon hangs up, so a reply already in
+    // the buffer beats the transport error that follows it.
+    sock.on('error', (e) => { if (!buf) finish(e); });
+    sock.on('connect', () => sock.end(JSON.stringify(msg)));
+    sock.on('data', (d) => { buf += d.toString(); });
+    sock.on('close', () => {
+      if (!buf) return finish(new Error('daemon closed without answering'));
+      try {
+        const r = JSON.parse(buf);
+        if (r && r.ok === false) return finish(new Error(r.error || 'refused'));
+        finish(null, r);
+      } catch (e) { finish(new Error('bad reply from daemon')); }
+    });
+  });
 }
 
-function lockNow() {
-  ensureUserDir();
-  fs.writeFileSync(UNLOCK_FILE, '0');
+const unlockFor = (minutes) => request({ cmd: 'unlock', minutes: Math.round(minutes) });
+const lockNow = () => request({ cmd: 'lock' });
+const setSundayBlockTonight = () => request({ cmd: 'sundayBlock' });
+const clearSundayBlock = () => request({ cmd: 'sundayClear' });
+const writeEscalate = (on) => request({ cmd: 'setEscalate', on: !!on });
+
+async function writeGateSeconds(n) {
+  const want = Math.max(MIN_GATE_SECONDS, Math.round(Number(n) || DEFAULT_GATE_SECONDS));
+  const r = await request({ cmd: 'setGateSeconds', seconds: want });
+  return r.gate_seconds;
 }
 
-function unlockUntil() {
-  try {
-    const v = parseInt(fs.readFileSync(UNLOCK_FILE, 'utf8').trim(), 10);
-    return Number.isFinite(v) ? v : 0;
-  } catch { return 0; }
+async function writeSites(list) {
+  const sites = list.map((s) => String(s).trim().toLowerCase()).filter(Boolean);
+  await request({ cmd: 'setSites', sites });
 }
 
-function secondsRemaining() {
-  return Math.max(0, unlockUntil() - Math.floor(Date.now() / 1000));
+// ---- Install ----
+
+function isInstalled() {
+  return fs.existsSync(SYS_DAEMON) && fs.existsSync(PLIST_DST);
 }
 
-// Extras only — the core list is separate and always applied.
-function readSites() {
-  return rawSites().filter(s => !isCore(s));
+function installedDaemonVersion() {
+  try { return parseInt(fs.readFileSync(VERSION_FILE, 'utf8').trim(), 10) || 0; }
+  catch { return fs.existsSync(SYS_DAEMON) ? 3 : 0; } // pre-v4 installs had no marker
 }
 
-function writeSites(list) {
-  ensureUserDir();
-  const extras = [...new Set(
-    list.map(s => s.trim().toLowerCase()).filter(s => s && !s.startsWith('#') && !isCore(s))
-  )];
-  fs.writeFileSync(SITES_FILE, extras.length ? extras.join('\n') + '\n' : '');
+function needsUpdate() {
+  return isInstalled() && installedDaemonVersion() < DAEMON_VERSION;
 }
+
+// Anything the previous, user-writable install had, so an upgrade does not reset
+// your settings. Only consulted when the daemon has no state of its own yet.
+function legacyState() {
+  const read = (name, fallback) => {
+    try { return fs.readFileSync(path.join(LEGACY_DIR, name), 'utf8').trim(); }
+    catch { return fallback; }
+  };
+  const num = (name, fallback) => {
+    const v = parseInt(read(name, ''), 10);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  const [date, count] = read('unlocks_today', '').split(/\s+/);
+  return {
+    unlock_until: num('unlock_until', 0),
+    sunday_block_until: num('sunday_block_until', 0),
+    gate_seconds: Math.max(MIN_GATE_SECONDS, num('gate_seconds', DEFAULT_GATE_SECONDS)),
+    escalate: read('escalate', '0') === '1',
+    unlocks_date: date || '',
+    unlocks_count: parseInt(count, 10) || 0,
+    sites: read('sites.txt', '').split('\n').map((s) => s.trim().toLowerCase())
+      .filter((s) => s && !s.startsWith('#') && !isCore(s)),
+  };
+}
+
+function ensureUserDir() { /* the daemon owns state now; nothing to seed */ }
 
 function resourcePath(rel) {
-  // Works both in dev (__dirname) and packaged (process.resourcesPath).
   const devPath = path.join(__dirname, rel);
   if (fs.existsSync(devPath)) return devPath;
   return path.join(process.resourcesPath, rel);
 }
 
-// Run a shell script with one macOS admin prompt.
 function runAsAdmin(script) {
   return new Promise((resolve, reject) => {
     const osaScript = `do shell script ${JSON.stringify(script)} with administrator privileges`;
@@ -229,33 +210,48 @@ function runAsAdmin(script) {
 }
 
 async function installDaemon() {
-  ensureUserDir();
-  lockNow(); // start blocked
-
-  const daemonTemplate = fs.readFileSync(resourcePath('scripts/gazegate-daemon.sh'), 'utf8');
-  const daemonResolved = daemonTemplate.replace(/__SUPPORT_DIR__/g, USER_DIR);
+  const binary = resourcePath('daemon/gazegated');
   const plist = fs.readFileSync(resourcePath('scripts/com.gazegate.blocker.plist'), 'utf8');
 
-  // Stage resolved files in a temp dir the admin script will copy from.
+  // Stage everything the admin step needs, including a seed state built from any
+  // previous install, so upgrading does not silently wipe your settings.
   const stage = path.join(os.tmpdir(), 'gazegate-install-' + process.pid);
   fs.mkdirSync(stage, { recursive: true });
-  fs.writeFileSync(path.join(stage, 'gazegate-daemon.sh'), daemonResolved);
+  fs.copyFileSync(binary, path.join(stage, 'gazegated'));
   fs.writeFileSync(path.join(stage, 'plist'), plist);
+  fs.writeFileSync(path.join(stage, 'seed.json'), JSON.stringify(legacyState(), null, 2));
+  fs.writeFileSync(path.join(stage, 'version'), String(DAEMON_VERSION));
 
   const script = [
     `mkdir -p '${SYS_DIR}'`,
-    `cp '${path.join(stage, 'gazegate-daemon.sh')}' '${SYS_DAEMON}'`,
+    `launchctl bootout system '${PLIST_DST}' 2>/dev/null || true`,
+    `cp '${path.join(stage, 'gazegated')}' '${SYS_DAEMON}'`,
     `chown root:wheel '${SYS_DAEMON}'`,
     `chmod 755 '${SYS_DAEMON}'`,
+    // Never clobber state the daemon is already keeping.
+    `[ -f '${STATE_FILE}' ] || cp '${path.join(stage, 'seed.json')}' '${STATE_FILE}'`,
+    `chown root:wheel '${STATE_FILE}'`,
+    `chmod 644 '${STATE_FILE}'`,
+    `cp '${path.join(stage, 'version')}' '${VERSION_FILE}'`,
+    `chown root:wheel '${VERSION_FILE}'`,
+    // The old bash daemon and the files it read are dead weight now, and leaving
+    // an inert unlock_until lying around invites confusion about what is trusted.
+    `rm -f '${SYS_DIR}/gazegate-daemon.sh'`,
     `cp '${path.join(stage, 'plist')}' '${PLIST_DST}'`,
     `chown root:wheel '${PLIST_DST}'`,
     `chmod 644 '${PLIST_DST}'`,
-    `launchctl bootout system '${PLIST_DST}' 2>/dev/null || true`,
+    `launchctl enable system/com.gazegate.blocker`,
     `launchctl bootstrap system '${PLIST_DST}'`,
   ].join(' && ');
 
   await runAsAdmin(script);
   try { fs.rmSync(stage, { recursive: true, force: true }); } catch {}
+
+  // Only once the daemon owns the state do the old user-writable files go, so a
+  // failed install leaves the previous settings recoverable.
+  for (const f of ['unlock_until', 'sunday_block_until', 'gate_seconds', 'escalate', 'unlocks_today', 'sites.txt']) {
+    try { fs.rmSync(path.join(LEGACY_DIR, f), { force: true }); } catch {}
+  }
 }
 
 async function uninstallDaemon() {
@@ -263,7 +259,7 @@ async function uninstallDaemon() {
     `launchctl bootout system '${PLIST_DST}' 2>/dev/null || true`,
     `rm -f '${PLIST_DST}'`,
     `rm -rf '${SYS_DIR}'`,
-    // Strip any lingering block section from /etc/hosts.
+    `rm -f '${SOCKET}'`,
     `awk 'BEGIN{s=0} /# GAZEGATE-START/{s=1} s==0{print} /# GAZEGATE-END/{s=0}' /etc/hosts > /tmp/gazegate.hosts && cat /tmp/gazegate.hosts > /etc/hosts && rm -f /tmp/gazegate.hosts`,
     `dscacheutil -flushcache 2>/dev/null || true`,
     `killall -HUP mDNSResponder 2>/dev/null || true`,
@@ -272,11 +268,11 @@ async function uninstallDaemon() {
 }
 
 module.exports = {
-  USER_DIR, CORE_SITES, MIN_GATE_SECONDS, MAX_GATE_SECONDS,
-  readEscalate, writeEscalate, unlocksToday, effectiveGateSeconds,
-  isInstalled, needsUpdate, installDaemon, uninstallDaemon,
-  unlockFor, lockNow, secondsRemaining, unlockUntil,
-  readSites, writeSites, ensureUserDir,
-  readGateSeconds, writeGateSeconds,
-  setSundayBlockTonight, clearSundayBlock, readSundayBlockUntil, effectiveState,
+  CORE_SITES, MIN_GATE_SECONDS, MAX_GATE_SECONDS, STATE_FILE, SOCKET,
+  isInstalled, needsUpdate, installDaemon, uninstallDaemon, ensureUserDir,
+  unlockFor, lockNow, secondsRemaining, unlockUntil, effectiveState,
+  readSites, writeSites,
+  readGateSeconds, writeGateSeconds, effectiveGateSeconds,
+  readEscalate, writeEscalate, unlocksToday,
+  setSundayBlockTonight, clearSundayBlock, readSundayBlockUntil,
 };

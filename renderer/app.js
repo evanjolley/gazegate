@@ -258,7 +258,16 @@ $('btn-install').onclick = async () => {
 
 async function startUnlock() {
   const passed = await runGate('unlock', 'Hold eye contact', `Look straight into the lens for ${gateSeconds} seconds. Look away and it resets.`);
-  if (passed) { await window.gazegate.gatePassed('unlock'); }
+  if (passed) {
+    const r = await window.gazegate.gatePassed('unlock');
+    // The daemon can refuse. Never swallow that after the stare has been held.
+    if (r && r.ok === false) {
+      $('home-error').textContent = `The blocker refused the unlock (${r.error}). Your stare was not wasted, nothing changed.`;
+      show('home-error', true);
+    } else {
+      show('home-error', false);
+    }
+  }
   await refresh();
   showView('home');
 }

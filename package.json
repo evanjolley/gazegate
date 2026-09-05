@@ -8,16 +8,17 @@
   "scripts": {
     "start": "electron .",
     "dev": "GAZEGATE_DEV=1 electron .",
-    "dist": "electron-builder --mac"
+    "dist": "npm run build:daemon && electron-builder --mac",
+    "build:daemon": "swiftc -O daemon/gazegated.swift -o daemon/gazegated"
   },
   "build": {
     "appId": "com.gazegate.app",
     "productName": "GazeGate",
     "files": [
       "**/*",
-      "!scripts/**/*.template",
       "!build/**/*",
-      "!dist/**/*"
+      "!dist/**/*",
+      "!daemon/**/*"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -30,7 +31,13 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "icon": "build/icon.icns"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "daemon/gazegated",
+        "to": "daemon/gazegated"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^33.2.0",

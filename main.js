@@ -3,6 +3,17 @@ const path = require('path');
 const blocker = require('./blocker');
 const stats = require('./stats');
 
+// A diagnostic entry point. Runs one authenticated round trip to the daemon and
+// exits, so the socket and the code-signature check can be proven from the real
+// signed bundle rather than inferred from its signature. `lock` is used because
+// it can only ever make things stricter.
+if (process.argv.includes('--selftest')) {
+  blocker.lockNow()
+    .then(() => { console.log('SELFTEST ok, daemon accepted this bundle'); process.exit(0); })
+    .catch((e) => { console.log('SELFTEST fail', e.message); process.exit(1); });
+  return;
+}
+
 const UNLOCK_MINUTES = 10;
 const DEV = !!process.env.GAZEGATE_DEV;
 
@@ -132,7 +143,7 @@ function trayMenu() {
   return Menu.buildFromTemplate([
     { label: 'Open GazeGate', click: () => showPanel('home') },
     unlocked
-      ? { label: 'Lock now', click: () => { blocker.lockNow(); } }
+      ? { label: 'Lock now', click: () => { blocker.lockNow().catch(() => {}); } }
       : { label: `Unlock (${secs}s eye contact)…`, click: () => showPanel('gate-unlock') },
     { type: 'separator' },
     { label: 'Quit GazeGate Completely', click: () => { quitting = true; app.quit(); } },
@@ -179,18 +190,18 @@ ipcMain.handle('get-gate-seconds', () => blocker.readGateSeconds());
 
 // Turning the rising price ON is stricter, so it is free. Turning it OFF is an
 // escape, and the renderer makes it cost a stare first — same rule as shortening.
-ipcMain.handle('set-escalate', (_e, on) => {
-  const v = blocker.writeEscalate(on);
-  return { ok: true, escalate: v, gateSeconds: blocker.effectiveGateSeconds() };
+ipcMain.handle('set-escalate', async (_e, on) => {
+  await blocker.writeEscalate(on);
+  return { ok: true, escalate: blocker.readEscalate(), gateSeconds: blocker.effectiveGateSeconds() };
 });
-ipcMain.handle('set-gate-seconds', (_e, n) => {
-  const v = blocker.writeGateSeconds(n);
+ipcMain.handle('set-gate-seconds', async (_e, n) => {
+  const v = await blocker.writeGateSeconds(n);
   refreshTrayMenu();
   return { ok: true, baseGateSeconds: v, gateSeconds: blocker.effectiveGateSeconds() };
 });
 
-ipcMain.handle('sunday-block', () => { blocker.setSundayBlockTonight(); return { ok: true }; });
-ipcMain.handle('sunday-clear', () => { blocker.clearSundayBlock(); return { ok: true }; });
+ipcMain.handle('sunday-block', async () => { await blocker.setSundayBlockTonight(); return { ok: true }; });
+ipcMain.handle('sunday-clear', async () => { await blocker.clearSundayBlock(); return { ok: true }; });
 
 ipcMain.handle('install-daemon', async () => {
   try {
@@ -204,12 +215,18 @@ ipcMain.handle('install-daemon', async () => {
 ipcMain.handle('gate-passed', async (_e, purpose) => {
   switch (purpose) {
     case 'unlock': {
-        const until = blocker.unlockFor(UNLOCK_MINUTES);
-      return {
-        ok: true,
-        remaining: Math.max(0, until - Math.floor(Date.now() / 1000)),
-        nextGateSeconds: blocker.effectiveGateSeconds(),
-      };
+        try {
+        const r = await blocker.unlockFor(UNLOCK_MINUTES);
+        return {
+          ok: true,
+          remaining: Math.max(0, r.unlock_until - Math.floor(Date.now() / 1000)),
+          nextGateSeconds: blocker.effectiveGateSeconds(),
+        };
+      } catch (e) {
+        // The stare was already paid for, so say what went wrong rather than
+        // dropping the request on the floor.
+        return { ok: false, error: String(e.message || e) };
+      }
     }
     case 'settings':
       return { ok: true };
@@ -235,9 +252,9 @@ ipcMain.handle('set-gate-active', (_e, active) => { gateActive = !!active; retur
 // The in-app Quit button just dismisses the panel, same as clicking away.
 ipcMain.handle('close-panel', () => { hidePanel(); return { ok: true }; });
 
-ipcMain.handle('lock-now', () => { blocker.lockNow(); return { ok: true }; });
+ipcMain.handle('lock-now', async () => { await blocker.lockNow(); return { ok: true }; });
 ipcMain.handle('get-sites', () => blocker.readSites());
-ipcMain.handle('set-sites', (_e, list) => { blocker.writeSites(list); return { ok: true }; });
+ipcMain.handle('set-sites', async (_e, list) => { await blocker.writeSites(list); return { ok: true }; });
 
 // Only one GazeGate instance may run — a second launch just focuses the first.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();

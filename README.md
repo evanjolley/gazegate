@@ -44,13 +44,14 @@ Turning it on is free. Turning it off costs one stare at whatever the price curr
 
 ## Install
 
-You need a Mac with Apple silicon, Node, and about five minutes.
+You need a Mac with Apple silicon, Node, the Xcode command line tools for `swiftc`, and
+about five minutes.
 
 ```bash
 git clone https://github.com/evanjolley/gazegate.git
 cd gazegate
 npm install
-npx electron-builder --mac
+npm run dist
 cp -R dist/mac-arm64/GazeGate.app /Applications/GazeGate.app
 open -a /Applications/GazeGate.app
 ```
@@ -73,16 +74,34 @@ not bring it back after you deliberately quit, which is the point.
 
 ## How it actually works
 
-A root LaunchDaemon called `com.gazegate.blocker` rewrites `/etc/hosts` once a second,
-forever, whether or not the app is running. It reads two timestamp files and nothing else.
+A root LaunchDaemon called `com.gazegate.blocker` runs `gazegated`, a small Swift binary
+that rewrites `/etc/hosts` once a second, forever, whether or not the app is running.
 Quitting the app does not unblock anything.
 
-The app runs unprivileged and can never touch `/etc/hosts`. All it can do is write a
-timestamp asking for an unlock, and it only does that once you have passed the stare. Gaze
-detection is MediaPipe FaceLandmarker, using iris position, head pose and eye direction.
+The daemon owns every piece of state the block decision depends on. It keeps that state in
+a root owned `state.json` that you cannot write. The app reads it freely and asks for
+changes over a unix socket at `/var/run/gazegate.sock`.
 
-The permanently blocked list is hardcoded in both `blocker.js` and the daemon script, and
-the daemon unions it in unconditionally. Emptying `sites.txt` by hand does not unblock
+Anyone may connect to that socket, but being allowed to speak is not being allowed to act.
+For each connection the daemon reads the peer's audit token with `LOCAL_PEERTOKEN`,
+resolves it to a code object with `SecCodeCopyGuestWithAttributes`, and checks it with
+`SecCodeCheckValidity` against this requirement.
+
+```
+identifier "com.gazegate.app" and anchor apple generic
+  and certificate leaf[subject.OU] = "3ZWQQ4J23W"
+```
+
+If the caller is not genuinely GazeGate, the request is refused and logged. The audit token
+is used rather than the process id, because ids can be recycled between the check and the
+act.
+
+So the app can only ask for an unlock, and it only asks once you have passed the stare.
+Gaze detection is MediaPipe FaceLandmarker, using iris position, head pose and eye
+direction.
+
+The permanently blocked list is hardcoded in both `blocker.js` and `gazegated.swift`, and
+the daemon unions it in unconditionally. Nothing you can do from outside the app unblocks
 those sites.
 
 ### Where things live
@@ -90,10 +109,15 @@ those sites.
 | Thing | Path |
 |---|---|
 | The app you run | `/Applications/GazeGate.app` |
-| Your state, unlock and settings | `~/Library/Application Support/GazeGate` |
-| Root daemon and its log | `/Library/Application Support/GazeGate` |
+| Daemon binary, state and log | `/Library/Application Support/GazeGate` |
+| All state, root owned, world readable | `/Library/Application Support/GazeGate/state.json` |
+| Request socket | `/var/run/gazegate.sock` |
 | Daemon job | `/Library/LaunchDaemons/com.gazegate.blocker.plist` |
 | Menu bar job | `~/Library/LaunchAgents/com.gazegate.app.plist` |
+
+Nothing under your home directory affects blocking any more. Older versions kept the unlock
+timestamp in `~/Library/Application Support/GazeGate`, and the installer migrates those
+values once and then deletes them.
 
 ### History
 
@@ -112,22 +136,38 @@ neither extend a streak nor break one.
 
 This is a commitment device, not security software.
 
-The unlock timestamp lives in a file you own and can write. One line in a terminal defeats
-the entire gate, with no password. Everything else here is careful, and that is still true,
-so treat the friction as the product rather than the enforcement.
+Faking an unlock now costs you root. You can still `sudo launchctl bootout` the daemon, or
+edit `/etc/hosts` by hand, or delete the whole thing. That is deliberate. The goal is to
+make the disciplined path cheaper than the escape, not to build a vault you cannot leave.
 
-A determined version of you can also boot out the daemon or edit `/etc/hosts` by hand. The
-point is to make the easy path the disciplined one, not to build a vault.
+One residual gap is worth naming. The requirement is pinned to the bundle identifier and
+the signing team, not to an exact binary hash. You hold that signing certificate, so you
+could modify the app, resign it, and it would still be trusted. Pinning to a hash would
+close that and would also break the daemon on every rebuild until it was reinstalled. For
+a tool you are pointing at yourself, rebuilding and resigning an app at eleven at night is
+friction enough.
 
 ## Building on it
 
 ```
+daemon/       gazegated.swift, the root daemon and its socket
 main.js       menu bar panel, tray, window lifecycle
-blocker.js    state files, daemon install, the rising price
+blocker.js    reads root state, asks the daemon for changes, installs it
 stats.js      parses daemon.log into history
 preload.js    the IPC surface exposed to the renderer
 renderer/     the panel UI
-scripts/      the root daemon and both launchd jobs
+scripts/      both launchd jobs
+```
+
+`npm run build:daemon` compiles the daemon on its own. `npm run dist` does that and then
+packages the app, which carries the compiled binary in its Resources and copies it into
+place during install.
+
+There is a diagnostic that proves the socket and the signature check end to end without
+needing a stare.
+
+```bash
+/Applications/GazeGate.app/Contents/MacOS/GazeGate --selftest
 ```
 
 Editing source does nothing on its own. The app you run is the one in `/Applications`, so
@@ -169,6 +209,12 @@ Electron binary is not a permitted camera client. Test with the packaged app.
 
 launchd throttles respawns to about ten seconds, so wait longer than that before deciding
 crash recovery is broken.
+
+The daemon refuses anything it cannot attribute to a correctly signed GazeGate. If you
+change the bundle identifier or sign with a different team, update `REQUIREMENT` in
+`gazegated.swift` or the app will lock itself out of its own daemon. `GAZEGATE_REQUIREMENT`,
+`GAZEGATE_STATE_DIR`, `GAZEGATE_HOSTS` and `GAZEGATE_SOCKET` override the defaults, which is
+how the daemon can be exercised without root.
 
 ## Turning it off
 
