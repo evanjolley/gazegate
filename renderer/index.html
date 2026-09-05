@@ -47,14 +47,15 @@
       <p class="hint tap">Full history →</p>
     </div>
     <div class="btn-row">
-      <button class="primary" id="btn-unlock">Unlock — hold eye contact 30s</button>
-      <button class="primary" id="btn-sunday-block" style="display:none">Block for the rest of today</button>
+      <!-- One primary action. Locking and unlocking are mutually exclusive by
+           definition, so they share a button rather than sitting side by side
+           with one of them inert. -->
+      <button class="primary" id="btn-primary">Unlock — hold eye contact 30s</button>
       <button class="danger" id="btn-sunday-open" style="display:none">Open for the rest of today (eye contact)</button>
       <div class="btn-inline">
-        <button id="btn-lock">Lock now</button>
         <button id="btn-settings">Settings</button>
+        <button class="danger" id="btn-quit">Close</button>
       </div>
-      <button class="danger" id="btn-quit">Close (sites stay blocked)</button>
     </div>
   </section>
 

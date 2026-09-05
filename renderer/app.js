@@ -28,6 +28,7 @@ function showView(name) {
 
 // ---------- status / home ----------
 let statusTimer = null;
+let primaryAction = 'unlock'; // what the one primary button currently does
 async function refresh() {
   const s = await window.gazegate.getStatus();
   if (!s.installed) { showView('install'); return; }
@@ -52,10 +53,15 @@ async function refresh() {
   // reset, then enable per mode
   show('countdown-wrap', false);
   show('sunday-note', false);
-  show('btn-unlock', false);
-  show('btn-sunday-block', false);
   show('btn-sunday-open', false);
-  show('btn-lock', true);
+
+  // The primary button is whichever of lock/unlock is actually available. They
+  // are never both meaningful: you can only lock while an unlock is running,
+  // and only unlock while you are blocked.
+  const primary = (action, label) => {
+    primaryAction = action;
+    $('btn-primary').textContent = label;
+  };
 
   switch (s.mode) {
     case 'unlocked': {
@@ -63,27 +69,24 @@ async function refresh() {
       show('countdown-wrap', true);
       const m = Math.floor(s.remaining / 60), sec = s.remaining % 60;
       $('countdown').textContent = `${m}:${String(sec).padStart(2, '0')}`;
-      show('btn-unlock', true);
-      $('btn-unlock').textContent = `Unlock again — hold eye contact ${gateSeconds}s`;
+      primary('lock', 'Lock now');
       break;
     }
     case 'sunday-open':
       setBadge('unlocked', 'Sunday — open all day');
       show('sunday-note', true);
-      show('btn-sunday-block', true);
-      show('btn-lock', false);
+      // Nothing to lock — the day is open by design — so the strict move is
+      // re-arming blocking for the rest of it.
+      primary('sunday-block', 'Block for the rest of today');
       break;
     case 'sunday-blocked':
       setBadge('blocked', 'Blocked · on for today');
-      show('btn-unlock', true);
-      $('btn-unlock').textContent = `Unlock — hold eye contact ${gateSeconds}s`;
+      primary('unlock', `Unlock — hold eye contact ${gateSeconds}s`);
       show('btn-sunday-open', true);
-      show('btn-lock', false);
       break;
     default: // 'blocked'
       setBadge('blocked', 'Blocked');
-      show('btn-unlock', true);
-      $('btn-unlock').textContent = `Unlock — hold eye contact ${gateSeconds}s`;
+      primary('unlock', `Unlock — hold eye contact ${gateSeconds}s`);
   }
 }
 function startStatusPolling() {
@@ -253,26 +256,33 @@ $('btn-install').onclick = async () => {
   }
 };
 
-$('btn-unlock').onclick = async () => {
+async function startUnlock() {
   const passed = await runGate('unlock', 'Hold eye contact', `Look straight into the lens for ${gateSeconds} seconds. Look away and it resets.`);
   if (passed) { await window.gazegate.gatePassed('unlock'); }
   await refresh();
   showView('home');
-};
+}
 
-$('btn-lock').onclick = async () => { await window.gazegate.lockNow(); await refresh(); };
+$('btn-primary').onclick = async () => {
+  switch (primaryAction) {
+    case 'lock':          // free, it only ever makes things stricter
+      await window.gazegate.lockNow();
+      await refresh();
+      break;
+    case 'sunday-block':  // also free, same reason
+      await window.gazegate.sundayBlock();
+      await refresh();
+      break;
+    default:
+      await startUnlock();
+  }
+};
 
 $('btn-update').onclick = async () => {
   $('btn-update').textContent = 'Applying…';
   const r = await window.gazegate.updateDaemon();
   if (r.ok) await refresh();
   else $('btn-update').textContent = 'Update failed — retry';
-};
-
-// Sunday: re-arm blocking for the rest of today — no gate (making it stricter is free).
-$('btn-sunday-block').onclick = async () => {
-  await window.gazegate.sundayBlock();
-  await refresh();
 };
 
 // Sunday: undo that and open back up — gated, since it's an escape.
@@ -554,7 +564,7 @@ $('stats').onclick = async () => {
 $('btn-history-back').onclick = () => showView('home');
 
 window.gazegate.onNavigate((view) => {
-  if (view === 'gate-unlock') $('btn-unlock').click();
+  if (view === 'gate-unlock') startUnlock();
   else showView('home');
 });
 

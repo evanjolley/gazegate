@@ -126,10 +126,14 @@ function installAppMenu() {
 // left click too, and the left click has to open the panel.
 function trayMenu() {
   const secs = blocker.effectiveGateSeconds();
+  // Rebuilt on every right-click, so it can show only the action that applies.
+  // Locking is meaningless unless an unlock window is actually running.
+  const unlocked = blocker.effectiveState().mode === 'unlocked';
   return Menu.buildFromTemplate([
     { label: 'Open GazeGate', click: () => showPanel('home') },
-    { label: `Unlock (${secs}s eye contact)…`, click: () => showPanel('gate-unlock') },
-    { label: 'Lock now', click: () => { blocker.lockNow(); } },
+    unlocked
+      ? { label: 'Lock now', click: () => { blocker.lockNow(); } }
+      : { label: `Unlock (${secs}s eye contact)…`, click: () => showPanel('gate-unlock') },
     { type: 'separator' },
     { label: 'Quit GazeGate Completely', click: () => { quitting = true; app.quit(); } },
   ]);
