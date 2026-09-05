@@ -45,17 +45,63 @@ function createWindow() {
   win.on('close', (e) => {
     if (!quitting) {
       e.preventDefault();
-      win.hide();
+      hideToMenuBar();
     }
   });
 }
 
-function revealWindow() {
+// Open == a normal app: Dock icon and a GazeGate menu at the top left. The
+// bundle declares LSUIElement, so we start demoted and promote on demand —
+// same shape LetsVPN uses, which is why it has a menu bar despite LSUIElement.
+async function revealWindow() {
   if (!win || win.isDestroyed()) return;
   pendingShow = true;
+  if (app.dock) { try { await app.dock.show(); } catch {} }
   win.show();
   win.focus();
   app.focus({ steal: true });
+}
+
+// What "Quit" means from the app menu, ⌘Q, or the window's close button: leave
+// the Dock and the ⌘-Tab list, keep the process and the menu-bar icon. This is
+// what Granola and LetsVPN do — neither has actually quit in weeks. The real
+// exit is the tray menu's "Quit GazeGate Completely".
+function hideToMenuBar() {
+  if (win && !win.isDestroyed()) win.hide();
+  if (app.dock) app.dock.hide();
+}
+
+function installAppMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'GazeGate',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { type: 'separator' },
+        // Deliberately not role:'quit'. Routing this through a click handler
+        // rather than cancelling 'before-quit' matters: before-quit also fires
+        // on logout and restart, and cancelling it would hang a shutdown.
+        { label: 'Quit GazeGate', accelerator: 'Command+Q', click: () => hideToMenuBar() },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { label: 'Close', accelerator: 'Command+W', click: () => hideToMenuBar() },
+        { role: 'minimize' },
+      ],
+    },
+  ]));
 }
 
 function showWindow(view) {
@@ -72,7 +118,7 @@ function refreshTrayMenu() {
     { label: `Unlock (${secs}s eye contact)…`, click: () => showWindow('gate-unlock') },
     { label: 'Lock now', click: () => { blocker.lockNow(); } },
     { type: 'separator' },
-    { label: 'Quit GazeGate', click: () => { quitting = true; app.quit(); } },
+    { label: 'Quit GazeGate Completely', click: () => { quitting = true; app.quit(); } },
   ]));
 }
 
@@ -179,6 +225,7 @@ app.whenReady().then(async () => {
   const ses = require('electron').session.defaultSession;
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
 
+  installAppMenu();
   createTray();
   createWindow(); // ready-to-show reveals it once painted
 
