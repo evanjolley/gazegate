@@ -49,19 +49,26 @@ holds **your extras only** — an empty file still blocks the core list.
 if it crashes or is killed (`KeepAlive: {SuccessfulExit: false}`). It passes `--hidden`
 so a login or post-crash start is menu-bar only.
 
-Quit means two different things on purpose:
+The UI is a panel anchored under the status item, the way LetsVPN does it. There is no
+Dock icon and no menu bar, ever — the bundle declares `LSUIElement` and never promotes.
 
-| Path | Result |
+| Action | Result |
 |---|---|
-| Top-left menu → Quit, ⌘Q, close button, in-app Quit button | Leaves the Dock, stays in the menu bar. Process alive. |
-| Tray right-click → **Quit GazeGate Completely** | Really exits. Stays exited until next login. |
+| Left-click the tray icon | Panel drops under the icon (toggles) |
+| Click anywhere else, ⌘W, in-app **Close** | Panel dismisses. Process alive. |
+| Right-click the tray icon → **Quit GazeGate Completely** | Really exits. Stays exited until next login. |
 
-The bundle declares `LSUIElement`, so it starts with no Dock icon and promotes itself
-with `app.dock.show()` when you open the window. That promotion is what gives it a Dock
-icon and a top-left menu.
+Two things that are easy to get wrong here:
 
-None of this is done by cancelling `before-quit` — that event also fires on logout and
-restart, and cancelling it would hang a shutdown.
+- **Don't use `tray.setContextMenu()`.** On macOS that hijacks the left click too, and
+  the left click has to open the panel. Use `tray.on('click')` plus
+  `tray.on('right-click')` → `popUpContextMenu()`.
+- **Blur-dismiss is suppressed mid-stare** (`set-gate-active` IPC). Without it, a stray
+  click anywhere would cancel a 30-second stare.
+
+Frameless windows get rounded corners from macOS by default, so no transparency hacks
+are needed. Nothing cancels `before-quit` — that event also fires on logout and restart,
+and cancelling it would hang a shutdown.
 
 ## Honest limits
 

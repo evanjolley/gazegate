@@ -157,6 +157,10 @@ async function runGate(purpose, title, sub) {
   $('gate-count').textContent = String(gateSeconds);
   showView('gate');
 
+  // Pin the panel open — it dismisses on blur, and a stray click must not be
+  // able to cancel a stare in progress.
+  await window.gazegate.setGateActive(true);
+
   let stream, video = $('video'), ctx = $('ring').getContext('2d');
   try {
     await loadModel();
@@ -166,6 +170,7 @@ async function runGate(purpose, title, sub) {
   } catch (e) {
     $('gate-status').textContent = 'Camera error: ' + (e.message || e);
     $('gate-status').className = 'gate-status bad';
+    await window.gazegate.setGateActive(false);
     return false;
   }
 
@@ -177,6 +182,7 @@ async function runGate(purpose, title, sub) {
     const cleanup = (result) => {
       gateActive = false;
       if (stream) stream.getTracks().forEach(t => t.stop());
+      window.gazegate.setGateActive(false);
       resolve(result);
     };
     $('btn-gate-cancel').onclick = () => cleanup(false);
@@ -334,10 +340,10 @@ $('btn-save-gate').onclick = async () => {
 };
 
 $('btn-quit').onclick = async () => {
-  // Same meaning as the top-left menu's Quit: out of the Dock, still in the
-  // menu bar. Ungated either way — the daemon is root and independent, so
-  // nothing here can unblock a site.
-  await window.gazegate.closeToMenuBar();
+  // Same as clicking away from the panel. Ungated — the daemon is root and
+  // independent, so nothing here can unblock a site. The real exit is the
+  // tray's right-click menu.
+  await window.gazegate.closePanel();
 };
 
 $('btn-uninstall').onclick = async () => {
