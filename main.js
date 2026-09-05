@@ -178,10 +178,6 @@ ipcMain.handle('gate-passed', async (_e, purpose) => {
     }
     case 'settings':
       return { ok: true };
-    case 'quit':
-      quitting = true;
-      setTimeout(() => app.quit(), 150);
-      return { ok: true };
     case 'uninstall':
       try {
         await blocker.uninstallDaemon();
@@ -195,6 +191,10 @@ ipcMain.handle('gate-passed', async (_e, purpose) => {
       return { ok: false, error: 'unknown purpose' };
   }
 });
+
+// The in-app Quit button means the same thing as the app menu's Quit: leave the
+// Dock, keep the menu-bar icon. Only the tray's "Quit Completely" really exits.
+ipcMain.handle('close-to-menu-bar', () => { hideToMenuBar(); return { ok: true }; });
 
 ipcMain.handle('lock-now', () => { blocker.lockNow(); return { ok: true }; });
 ipcMain.handle('get-sites', () => blocker.readSites());

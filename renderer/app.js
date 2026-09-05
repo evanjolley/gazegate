@@ -334,10 +334,10 @@ $('btn-save-gate').onclick = async () => {
 };
 
 $('btn-quit').onclick = async () => {
-  // No gate. The daemon is root and independent, so quitting cannot unblock
-  // anything — it only removes the way to unlock, which is strictly stricter.
-  // Gating this would punish the safe direction.
-  await window.gazegate.gatePassed('quit');
+  // Same meaning as the top-left menu's Quit: out of the Dock, still in the
+  // menu bar. Ungated either way — the daemon is root and independent, so
+  // nothing here can unblock a site.
+  await window.gazegate.closeToMenuBar();
 };
 
 $('btn-uninstall').onclick = async () => {

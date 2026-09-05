@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('gazegate', {
   installDaemon: () => ipcRenderer.invoke('install-daemon'),
   updateDaemon: () => ipcRenderer.invoke('install-daemon'),
   gatePassed: (purpose) => ipcRenderer.invoke('gate-passed', purpose),
+  closeToMenuBar: () => ipcRenderer.invoke('close-to-menu-bar'),
   lockNow: () => ipcRenderer.invoke('lock-now'),
   sundayBlock: () => ipcRenderer.invoke('sunday-block'),
   sundayClear: () => ipcRenderer.invoke('sunday-clear'),
