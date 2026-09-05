@@ -11,6 +11,10 @@ const UNLOCK_FILE = path.join(USER_DIR, 'unlock_until');
 const SUNDAY_FILE = path.join(USER_DIR, 'sunday_block_until');
 const SITES_FILE = path.join(USER_DIR, 'sites.txt');
 const GATE_FILE = path.join(USER_DIR, 'gate_seconds');
+// Opt-in. Off means the stare costs the same all day, which is how this shipped.
+const ESCALATE_FILE = path.join(USER_DIR, 'escalate');
+// "YYYY-MM-DD n" — n unlocks granted on that local date.
+const UNLOCKS_FILE = path.join(USER_DIR, 'unlocks_today');
 
 // Bump when scripts/gazegate-daemon.sh changes behavior; drives the update prompt.
 const DAEMON_VERSION = 3;
@@ -19,6 +23,8 @@ const DAEMON_VERSION = 3;
 // in the renderer — the renderer only ever asks.
 const MIN_GATE_SECONDS = 30;
 const DEFAULT_GATE_SECONDS = 30;
+// Ceiling for the escalated price, so a bad day can't lock you out for an hour.
+const MAX_GATE_SECONDS = 600;
 
 const SYS_DIR = '/Library/Application Support/GazeGate';
 const SYS_DAEMON = path.join(SYS_DIR, 'gazegate-daemon.sh');
@@ -39,6 +45,8 @@ function ensureUserDir() {
   if (!fs.existsSync(UNLOCK_FILE)) fs.writeFileSync(UNLOCK_FILE, '0');
   if (!fs.existsSync(SUNDAY_FILE)) fs.writeFileSync(SUNDAY_FILE, '0');
   if (!fs.existsSync(GATE_FILE)) fs.writeFileSync(GATE_FILE, String(DEFAULT_GATE_SECONDS));
+  if (!fs.existsSync(ESCALATE_FILE)) fs.writeFileSync(ESCALATE_FILE, '0');
+  if (!fs.existsSync(UNLOCKS_FILE)) fs.writeFileSync(UNLOCKS_FILE, '');
   // sites.txt now holds *extras only*. Older installs listed the core sites
   // here too; strip them so the settings list doesn't offer to remove them.
   if (!fs.existsSync(SITES_FILE)) fs.writeFileSync(SITES_FILE, '');
@@ -69,6 +77,47 @@ function writeGateSeconds(n) {
   const v = Math.max(MIN_GATE_SECONDS, Math.round(Number(n) || DEFAULT_GATE_SECONDS));
   fs.writeFileSync(GATE_FILE, String(v));
   return v;
+}
+
+// ---- Rising price ----
+// Local date, not UTC — the reset should land on your midnight.
+function today() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function readEscalate() {
+  try { return fs.readFileSync(ESCALATE_FILE, 'utf8').trim() === '1'; } catch { return false; }
+}
+
+function writeEscalate(on) {
+  ensureUserDir();
+  fs.writeFileSync(ESCALATE_FILE, on ? '1' : '0');
+  return !!on;
+}
+
+// Unlocks granted so far today. A stale date reads as zero, which is the reset.
+function unlocksToday() {
+  try {
+    const [date, n] = fs.readFileSync(UNLOCKS_FILE, 'utf8').trim().split(/\s+/);
+    if (date !== today()) return 0;
+    const v = parseInt(n, 10);
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  } catch { return 0; }
+}
+
+function bumpUnlocksToday() {
+  ensureUserDir();
+  const n = unlocksToday() + 1;
+  fs.writeFileSync(UNLOCKS_FILE, `${today()} ${n}`);
+  return n;
+}
+
+// What the next stare actually costs. Doubles per unlock already taken today.
+function effectiveGateSeconds() {
+  const base = readGateSeconds();
+  if (!readEscalate()) return base;
+  return Math.min(MAX_GATE_SECONDS, base * Math.pow(2, unlocksToday()));
 }
 
 function isInstalled() {
@@ -128,6 +177,7 @@ function unlockFor(minutes) {
   ensureUserDir();
   const until = Math.floor(Date.now() / 1000) + Math.round(minutes * 60);
   fs.writeFileSync(UNLOCK_FILE, String(until));
+  bumpUnlocksToday(); // this is what makes the next one cost more
   return until;
 }
 
@@ -222,7 +272,8 @@ async function uninstallDaemon() {
 }
 
 module.exports = {
-  USER_DIR, CORE_SITES, MIN_GATE_SECONDS,
+  USER_DIR, CORE_SITES, MIN_GATE_SECONDS, MAX_GATE_SECONDS,
+  readEscalate, writeEscalate, unlocksToday, effectiveGateSeconds,
   isInstalled, needsUpdate, installDaemon, uninstallDaemon,
   unlockFor, lockNow, secondsRemaining, unlockUntil,
   readSites, writeSites, ensureUserDir,

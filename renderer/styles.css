@@ -95,3 +95,9 @@ input[type="number"] {
 .hint { font-size: 12px; color: var(--muted); }
 a.link { color: var(--accent); text-decoration: none; cursor: pointer; font-size: 12px; }
 .banner { background: #2a2410; border: 1px solid #6b5a16; color: #f0d98a; font-size: 12px; padding: 9px 12px; border-radius: 9px; margin-top: 12px; }
+
+.toggle-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 10px; cursor: pointer; font-size: 13px; color: var(--text);
+}
+.toggle-row input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }

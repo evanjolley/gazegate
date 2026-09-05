@@ -76,6 +76,24 @@ This is a **commitment device, not security software.** A determined you can ope
 Terminal and boot out the daemon or edit `/etc/hosts` by hand. The point is friction,
 not a vault.
 
+## Rising price (off by default)
+
+Settings → **Rising price**. When on, each unlock doubles what the next one costs *that
+day* — 30s, 60s, 120s — capped at `MAX_GATE_SECONDS` (600) and reset at local midnight.
+Off, the stare costs the same all day, which is how this originally shipped.
+
+State lives in two files next to the others. `escalate` is `0`/`1`. `unlocks_today` is
+`YYYY-MM-DD n`; a stale date reads as zero, which *is* the reset — there's no cron.
+`blocker.unlockFor()` bumps the counter, so the price rises off granted unlocks rather
+than attempts.
+
+Consistent with the rule: turning it **on** is stricter, so it's free. Turning it **off**
+costs one stare at whatever the price currently is.
+
+`gateSeconds` in the UI is the *effective* price. `baseGateSeconds` is what the Settings
+field edits. Don't confuse them — the length form compares against the base, every gate
+prompt quotes the effective.
+
 ## Tuning the stare
 
 Length is set in the app (Settings → gate seconds, floor of 30, enforced in the main

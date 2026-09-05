@@ -124,7 +124,7 @@ function installAppMenu() {
 // Right-click menu. NOT set with setContextMenu — on macOS that hijacks the
 // left click too, and the left click has to open the panel.
 function trayMenu() {
-  const secs = blocker.readGateSeconds();
+  const secs = blocker.effectiveGateSeconds();
   return Menu.buildFromTemplate([
     { label: 'Open GazeGate', click: () => showPanel('home') },
     { label: `Unlock (${secs}s eye contact)…`, click: () => showPanel('gate-unlock') },
@@ -159,17 +159,28 @@ ipcMain.handle('get-status', () => {
     isSunday: new Date().getDay() === 0,
     sites: blocker.readSites(),
     coreSites: blocker.CORE_SITES,
-    gateSeconds: blocker.readGateSeconds(),
+    gateSeconds: blocker.effectiveGateSeconds(), // what the next stare costs
+    baseGateSeconds: blocker.readGateSeconds(),   // what Settings edits
     minGateSeconds: blocker.MIN_GATE_SECONDS,
+    maxGateSeconds: blocker.MAX_GATE_SECONDS,
+    escalate: blocker.readEscalate(),
+    unlocksToday: blocker.unlocksToday(),
   };
 });
 
 ipcMain.handle('get-core-sites', () => blocker.CORE_SITES);
 ipcMain.handle('get-gate-seconds', () => blocker.readGateSeconds());
+
+// Turning the rising price ON is stricter, so it is free. Turning it OFF is an
+// escape, and the renderer makes it cost a stare first — same rule as shortening.
+ipcMain.handle('set-escalate', (_e, on) => {
+  const v = blocker.writeEscalate(on);
+  return { ok: true, escalate: v, gateSeconds: blocker.effectiveGateSeconds() };
+});
 ipcMain.handle('set-gate-seconds', (_e, n) => {
   const v = blocker.writeGateSeconds(n);
   refreshTrayMenu();
-  return { ok: true, gateSeconds: v };
+  return { ok: true, baseGateSeconds: v, gateSeconds: blocker.effectiveGateSeconds() };
 });
 
 ipcMain.handle('sunday-block', () => { blocker.setSundayBlockTonight(); return { ok: true }; });
@@ -187,8 +198,12 @@ ipcMain.handle('install-daemon', async () => {
 ipcMain.handle('gate-passed', async (_e, purpose) => {
   switch (purpose) {
     case 'unlock': {
-      const until = blocker.unlockFor(UNLOCK_MINUTES);
-      return { ok: true, remaining: Math.max(0, until - Math.floor(Date.now() / 1000)) };
+        const until = blocker.unlockFor(UNLOCK_MINUTES);
+      return {
+        ok: true,
+        remaining: Math.max(0, until - Math.floor(Date.now() / 1000)),
+        nextGateSeconds: blocker.effectiveGateSeconds(),
+      };
     }
     case 'settings':
       return { ok: true };

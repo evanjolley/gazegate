@@ -4,7 +4,10 @@ import { FaceLandmarker, FilesetResolver }
 // ---- tunable thresholds ----
 // How long you must hold is user-configurable now; the main process owns the
 // value and enforces the floor, this is just the last-synced copy.
-let gateSeconds = 30;
+let gateSeconds = 30;      // what the next stare costs (may be escalated)
+let baseGateSeconds = 30;  // what Settings edits
+let escalate = false;
+let maxGateSeconds = 600;
 let minGateSeconds = 30;
 const requiredMs = () => gateSeconds * 1000;
 
@@ -34,7 +37,10 @@ async function refresh() {
   if (currentView === null || currentView === 'install') showView('home');
 
   gateSeconds = s.gateSeconds;
+  baseGateSeconds = s.baseGateSeconds;
   minGateSeconds = s.minGateSeconds;
+  maxGateSeconds = s.maxGateSeconds;
+  escalate = s.escalate;
 
   show('update-banner', s.needsUpdate);
 
@@ -288,10 +294,11 @@ $('btn-settings').onclick = async () => {
   ]);
   $('core-sites').innerHTML = core.map(s => `<li>${s}</li>`).join('');
   $('sites').value = sites.join('\n');
-  $('gate-seconds').value = gateSeconds;
+  $('gate-seconds').value = baseGateSeconds;
   $('gate-seconds').min = minGateSeconds;
   $('min-gate').textContent = minGateSeconds;
   $('gate-msg').textContent = '';
+  paintEscalate();
   showView('settings');
 };
 
@@ -305,6 +312,41 @@ $('btn-save-sites').onclick = async () => {
   setTimeout(() => ($('btn-save-sites').textContent = 'Save extra sites'), 1200);
 };
 
+function paintEscalate() {
+  $('esc-toggle').checked = escalate;
+  $('esc-max').textContent = maxGateSeconds;
+  const b = baseGateSeconds;
+  $('esc-curve').textContent = `${b}s, ${b * 2}s, ${b * 4}s`;
+  $('esc-label').textContent = escalate
+    ? `On — the next unlock costs ${gateSeconds}s`
+    : 'Off';
+  $('esc-msg').textContent = '';
+}
+
+// On is stricter, so it is free. Off is an escape, so it costs one stare at
+// whatever the price is right now.
+$('esc-toggle').onchange = async () => {
+  const want = $('esc-toggle').checked;
+  if (!want) {
+    const from = gateSeconds;
+    const passed = await runGate('settings', 'Eye contact to stop the price rising',
+      `Turning this off makes unlocking cheaper. Hold ${from} seconds first.`);
+    showView('settings');
+    if (!passed) {
+      $('esc-toggle').checked = true;
+      $('esc-msg').style.color = 'var(--danger)';
+      $('esc-msg').textContent = 'Not changed — the stare was not completed.';
+      return;
+    }
+  }
+  const r = await window.gazegate.setEscalate(want);
+  escalate = r.escalate;
+  gateSeconds = r.gateSeconds;
+  paintEscalate();
+  $('esc-msg').style.color = 'var(--accent)';
+  $('esc-msg').textContent = want ? 'On.' : 'Off.';
+};
+
 // Longer is free. Shorter is an escape, so it costs one stare at the *current*
 // length — same rule the Sunday buttons follow.
 $('btn-save-gate').onclick = async () => {
@@ -313,18 +355,18 @@ $('btn-save-gate').onclick = async () => {
   if (!Number.isFinite(want) || want < minGateSeconds) {
     msg.style.color = 'var(--danger)';
     msg.textContent = `Minimum is ${minGateSeconds} seconds.`;
-    $('gate-seconds').value = gateSeconds;
+    $('gate-seconds').value = baseGateSeconds;
     return;
   }
-  if (want === gateSeconds) { msg.style.color = ''; msg.textContent = 'Unchanged.'; return; }
+  if (want === baseGateSeconds) { msg.style.color = ''; msg.textContent = 'Unchanged.'; return; }
 
-  if (want < gateSeconds) {
+  if (want < baseGateSeconds) {
     const from = gateSeconds;
     const passed = await runGate('settings', 'Eye contact to shorten the stare',
       `Going from ${from}s down to ${want}s makes this easier on you. Hold ${from} seconds first.`);
     if (!passed) {
       showView('settings');
-      $('gate-seconds').value = gateSeconds;
+      $('gate-seconds').value = baseGateSeconds;
       msg.style.color = 'var(--danger)';
       msg.textContent = 'Not changed — the stare was not completed.';
       return;
@@ -333,10 +375,14 @@ $('btn-save-gate').onclick = async () => {
   }
 
   const r = await window.gazegate.setGateSeconds(want);
+  baseGateSeconds = r.baseGateSeconds;
   gateSeconds = r.gateSeconds;
-  $('gate-seconds').value = gateSeconds;
+  $('gate-seconds').value = baseGateSeconds;
+  paintEscalate();
   msg.style.color = 'var(--accent)';
-  msg.textContent = `Saved — ${gateSeconds} seconds.`;
+  msg.textContent = escalate && gateSeconds !== baseGateSeconds
+    ? `Saved — ${baseGateSeconds}s base, ${gateSeconds}s for the next unlock today.`
+    : `Saved — ${baseGateSeconds} seconds.`;
 };
 
 $('btn-quit').onclick = async () => {

@@ -79,6 +79,17 @@
       <textarea id="sites" spellcheck="false"></textarea>
       <button class="primary" id="btn-save-sites">Save extra sites</button>
 
+      <h2 class="sec">Rising price</h2>
+      <p class="hint">Off by default. When on, every unlock doubles what the next one costs
+        today &mdash; <span id="esc-curve">30s, 60s, 120s</span> &mdash; capped at
+        <span id="esc-max">600</span>s and reset at midnight. Turning it on is free.
+        Turning it off costs one stare, like every other way of making this easier.</p>
+      <label class="toggle-row">
+        <input type="checkbox" id="esc-toggle" />
+        <span id="esc-label">Off</span>
+      </label>
+      <p id="esc-msg" class="hint" style="margin-top:8px"></p>
+
       <h2 class="sec">Stare length</h2>
       <p class="hint">How long you hold eye contact. Minimum <span id="min-gate">30</span> seconds. Making it longer applies right away; making it shorter needs one more stare at the current length.</p>
       <div class="btn-inline" style="margin-top:10px">
