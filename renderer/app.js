@@ -464,9 +464,10 @@ function paintHomeStats(st) {
 
   drawClock(st.hours);
 
-  $('st-streak').innerHTML = st.currentStreak
-    ? `<b>${st.currentStreak}</b> clean day${st.currentStreak === 1 ? '' : 's'} in a row · best <b>${st.longestStreak}</b>`
-    : `best clean streak <b>${st.longestStreak}</b> days`;
+  // Current streak only. The best-ever number lives in the history view, where
+  // it is context rather than a consolation prize on the screen you see daily.
+  $('st-streak').innerHTML =
+    `<b>${st.currentStreak}</b> clean day${st.currentStreak === 1 ? '' : 's'} in a row`;
 
   const last30 = st.days.slice(-30);
   $('st-dots').innerHTML = '';
