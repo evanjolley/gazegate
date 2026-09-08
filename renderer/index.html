@@ -28,6 +28,7 @@
     <nav class="tabs">
       <button data-tab="home" class="on">Blocker</button>
       <button data-tab="pomodoro">Focus</button>
+      <button data-tab="noise">Sound</button>
     </nav>
     <div id="update-banner" class="banner" style="display:none">
       Blocker update available. <a class="link" id="btn-update">Apply now</a>
@@ -70,6 +71,7 @@
     <nav class="tabs">
       <button data-tab="home">Blocker</button>
       <button data-tab="pomodoro" class="on">Focus</button>
+      <button data-tab="noise">Sound</button>
     </nav>
 
     <div class="pomo">
@@ -112,6 +114,33 @@
       <div class="btn-inline">
         <button id="btn-pomo-reset">Reset</button>
         <button id="btn-pomo-config">Lengths &amp; sound</button>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- SOUND. A library of loops. Nothing here talks to the blocker either. -->
+  <section id="view-noise" class="view">
+    <nav class="tabs">
+      <button data-tab="home">Blocker</button>
+      <button data-tab="pomodoro">Focus</button>
+      <button data-tab="noise" class="on">Sound</button>
+    </nav>
+
+    <div class="scroll">
+      <ul id="noise-list" class="sound-list"></ul>
+    </div>
+
+    <div class="vol-row">
+      <span class="hint">Volume</span>
+      <input type="range" id="noise-vol" min="0" max="100" step="1" />
+      <span class="hint num" id="noise-vol-n">60</span>
+    </div>
+
+    <div class="btn-row">
+      <div class="btn-inline">
+        <button id="btn-noise-stop">Stop</button>
+        <button id="btn-noise-folder">Add your own</button>
       </div>
     </div>
   </section>

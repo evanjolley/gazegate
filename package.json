@@ -17,6 +17,8 @@
     "files": [
       "**/*",
       "!build/**/*",
+      "!.sound-cache/**/*",
+      "!scripts/build-sounds.py",
       "!dist/**/*",
       "!daemon/**/*"
     ],

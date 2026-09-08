@@ -3,3 +3,4 @@ dist/
 .DS_Store
 backup-GazeGate.app-*
 daemon/gazegated
+.sound-cache/

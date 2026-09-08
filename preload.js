@@ -30,4 +30,14 @@ contextBridge.exposeInMainWorld('gazegate', {
   pomoSounds: () => ipcRenderer.invoke('pomo-sounds'),
   pomoTestSound: (name) => ipcRenderer.invoke('pomo-test-sound', name),
   onPomodoro: (cb) => ipcRenderer.on('pomodoro', (_e, s) => cb(s)),
+
+  // Sound library. The main process finds the files and reads them; the
+  // renderer decodes and loops them, because only Web Audio loops gaplessly.
+  noiseList: () => ipcRenderer.invoke('noise-list'),
+  noiseRead: (id) => ipcRenderer.invoke('noise-read', id),
+  noiseConfig: () => ipcRenderer.invoke('noise-config'),
+  noiseSetConfig: (patch) => ipcRenderer.invoke('noise-set-config', patch),
+  noisePlaying: (id) => ipcRenderer.invoke('noise-playing', id),
+  noiseFolder: () => ipcRenderer.invoke('noise-folder'),
+  onNoiseStop: (cb) => ipcRenderer.on('noise-stop', () => cb()),
 });

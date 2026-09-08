@@ -19,7 +19,7 @@ const BLINK_MAX = 0.55;
 
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
-const views = ['install', 'home', 'pomodoro', 'gate', 'settings', 'history'];
+const views = ['install', 'home', 'pomodoro', 'noise', 'gate', 'settings', 'history'];
 let currentView = null;
 function showView(name) {
   currentView = name;
@@ -600,6 +600,7 @@ function showTab(name) {
     b.classList.toggle('on', b.dataset.tab === name));
   showView(name);
   if (name === 'pomodoro') window.gazegate.pomoGet().then(paintPomodoro);
+  if (name === 'noise') paintNoiseList();
 }
 document.querySelectorAll('.tabs button').forEach(b => {
   b.onclick = () => showTab(b.dataset.tab);
@@ -705,6 +706,136 @@ async function bootPomodoro() {
   paintPomodoro(await window.gazegate.pomoGet());
 }
 
+// ---------- sound library ----------
+// Playback lives here rather than in the main process because only Web Audio
+// can loop a buffer without a seam. The window is hidden, never closed, when
+// you click away, so a loop keeps running while the panel is out of sight.
+
+let audioCtx = null;      // created on the first play, so no suspended context sits idle
+let masterGain = null;    // volume
+let current = null;       // { src, gain } of whatever is playing
+let playingId = null;
+let noiseVolume = 0.6;
+let noiseEntries = [];
+const buffers = new Map();
+const FADE = 0.6;         // seconds, long enough that starting a loop is not a click
+
+// A linear slider that behaves like a volume knob rather than jumping to loud
+// in the first third of its travel.
+const volCurve = (v) => v * v;
+
+function ensureAudio() {
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = volCurve(noiseVolume);
+    masterGain.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+async function loadBuffer(id) {
+  if (buffers.has(id)) return buffers.get(id);
+  const bytes = await window.gazegate.noiseRead(id);
+  if (!bytes || !bytes.byteLength) throw new Error('file missing');
+  // The IPC copy arrives as a view into a larger buffer; decodeAudioData wants
+  // its own ArrayBuffer, and it detaches whatever it is given.
+  const arr = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const buf = await ensureAudio().decodeAudioData(arr);
+  buffers.set(id, buf);
+  return buf;
+}
+
+function fadeOut(node) {
+  if (!node) return;
+  const t = audioCtx.currentTime;
+  node.gain.gain.cancelScheduledValues(t);
+  node.gain.gain.setValueAtTime(node.gain.gain.value, t);
+  node.gain.gain.linearRampToValueAtTime(0.0001, t + FADE);
+  // Stopping before the ramp finishes is what makes a click.
+  setTimeout(() => { try { node.src.stop(); node.src.disconnect(); } catch {} }, FADE * 1000 + 120);
+}
+
+async function playNoise(id) {
+  ensureAudio();
+  let buf;
+  try {
+    buf = await loadBuffer(id);
+  } catch (e) {
+    const row = document.querySelector(`.sound[data-id="${id}"] span`);
+    if (row) row.textContent = 'Could not play that file';
+    return;
+  }
+  fadeOut(current);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 0.0001;
+  src.connect(gain).connect(masterGain);
+  src.start();
+  gain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + FADE);
+  current = { src, gain };
+  playingId = id;
+  window.gazegate.noisePlaying(id);
+  window.gazegate.noiseSetConfig({ lastId: id });
+  paintNoiseList();
+}
+
+function stopNoise() {
+  fadeOut(current);
+  current = null;
+  playingId = null;
+  window.gazegate.noisePlaying(null);
+  paintNoiseList();
+}
+
+function paintNoiseList() {
+  const ul = $('noise-list');
+  if (!ul) return;
+  ul.innerHTML = noiseEntries.map((e) => {
+    const note = e.available
+      ? (e.custom ? e.note + ' · your file' : e.note)
+      : (e.id === 'home' ? 'Drop a file named home into the sounds folder' : 'File missing');
+    return `<li class="sound${e.id === playingId ? ' on' : ''}${e.available ? '' : ' off'}" data-id="${e.id}">
+      <div class="sound-main"><b>${e.name}</b><span>${note}</span></div>
+      <div class="bars"><i></i><i></i><i></i></div>
+    </li>`;
+  }).join('');
+  ul.querySelectorAll('.sound').forEach((li) => {
+    if (li.classList.contains('off')) return;
+    li.onclick = () => (li.dataset.id === playingId ? stopNoise() : playNoise(li.dataset.id));
+  });
+  $('btn-noise-stop').disabled = !playingId;
+}
+
+$('noise-vol').oninput = () => {
+  noiseVolume = Number($('noise-vol').value) / 100;
+  $('noise-vol-n').textContent = String(Math.round(noiseVolume * 100));
+  if (masterGain) masterGain.gain.value = volCurve(noiseVolume);
+};
+$('noise-vol').onchange = () => window.gazegate.noiseSetConfig({ volume: noiseVolume });
+
+$('btn-noise-stop').onclick = () => stopNoise();
+$('btn-noise-folder').onclick = () => window.gazegate.noiseFolder();
+
+// The tray can stop playback without the panel being open.
+window.gazegate.onNoiseStop(() => stopNoise());
+
+async function bootNoise() {
+  const [entries, cfg] = await Promise.all([
+    window.gazegate.noiseList(),
+    window.gazegate.noiseConfig(),
+  ]);
+  noiseEntries = entries;
+  noiseVolume = cfg.volume;
+  $('noise-vol').value = Math.round(noiseVolume * 100);
+  $('noise-vol-n').textContent = String(Math.round(noiseVolume * 100));
+  paintNoiseList();
+}
+
 // boot
+bootNoise();
 bootPomodoro();
 refresh().then(startStatusPolling);

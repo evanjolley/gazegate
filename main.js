@@ -3,6 +3,7 @@ const path = require('path');
 const blocker = require('./blocker');
 const stats = require('./stats');
 const pomodoro = require('./pomodoro');
+const noise = require('./noise');
 
 // A diagnostic entry point. Runs one authenticated round trip to the daemon and
 // exits, so the socket and the code-signature check can be proven from the real
@@ -147,6 +148,10 @@ function trayMenu() {
       ? { label: 'Lock now', click: () => { blocker.lockNow().catch(() => {}); } }
       : { label: `Unlock (${secs}s eye contact)…`, click: () => showPanel('gate-unlock') },
     { label: 'Focus timer', click: () => showPanel('pomodoro') },
+    ...(playingNow() ? [{
+      label: `Stop ${playingNow().name}`,
+      click: () => { if (win && !win.isDestroyed()) win.webContents.send('noise-stop'); },
+    }] : [{ label: 'Sounds', click: () => showPanel('noise') }]),
     { type: 'separator' },
     { label: 'Quit GazeGate Completely', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -289,6 +294,18 @@ ipcMain.handle('pomo-set-config', (_e, patch) => pomodoro.setConfig(patch));
 ipcMain.handle('pomo-sounds', () => pomodoro.sounds());
 ipcMain.handle('pomo-test-sound', (_e, name) => { pomodoro.playSound(name); return { ok: true }; });
 
+// ---- Sound library. Files in, bytes out. Playback is the renderer's job. ----
+const playingNow = () => noise.nowPlaying();
+ipcMain.handle('noise-list', () => noise.list());
+ipcMain.handle('noise-read', (_e, id) => noise.read(id));
+ipcMain.handle('noise-config', () => noise.config());
+ipcMain.handle('noise-set-config', (_e, patch) => noise.setConfig(patch));
+ipcMain.handle('noise-playing', (_e, id) => { noise.setPlaying(id); return { ok: true }; });
+ipcMain.handle('noise-folder', () => {
+  require('electron').shell.openPath(noise.userSoundDir());
+  return { ok: true };
+});
+
 ipcMain.handle('lock-now', async () => { await blocker.lockNow(); return { ok: true }; });
 ipcMain.handle('get-sites', () => blocker.readSites());
 ipcMain.handle('set-sites', async (_e, list) => { await blocker.writeSites(list); return { ok: true }; });
@@ -319,6 +336,7 @@ app.whenReady().then(async () => {
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
 
   pomodoro.init();
+  noise.init();
   // One source of truth for the countdown: the main process pushes it to both
   // the menu bar and the panel, so a hidden window cannot drift from the tray.
   pomodoro.onChange((s) => {
