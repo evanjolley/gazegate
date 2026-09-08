@@ -40,4 +40,10 @@ contextBridge.exposeInMainWorld('gazegate', {
   noisePlaying: (id) => ipcRenderer.invoke('noise-playing', id),
   noiseFolder: () => ipcRenderer.invoke('noise-folder'),
   onNoiseStop: (cb) => ipcRenderer.on('noise-stop', () => cb()),
+
+  // Time spent on the sites you unlocked. The tracker is in the main process
+  // because the panel is not open for most of an unlock window.
+  getVisitStatus: () => ipcRenderer.invoke('get-visit-status'),
+  getVisits: () => ipcRenderer.invoke('get-visits'),
+  openAutomationSettings: () => ipcRenderer.invoke('open-automation-settings'),
 });

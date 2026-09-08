@@ -141,6 +141,22 @@ a.link { color: var(--accent); text-decoration: none; cursor: pointer; font-size
 .month-row .bar { height: 6px; background: var(--accent); border-radius: 3px; min-width: 2px; }
 .month-row .n { color: var(--text); font-weight: 600; }
 
+/* ---- Visits. Same rows as the months list, one extra column for a duration
+   and a meter for used against earned. ---- */
+.month-row .name.site { width: 122px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.month-row .when { width: 88px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.month-row .dur { margin-left: auto; color: var(--text); font-weight: 600;
+                  font-variant-numeric: tabular-nums; }
+.month-row .tag { font-size: 10px; color: var(--muted); border: 1px solid var(--ring-bg);
+                  border-radius: 4px; padding: 1px 5px; }
+.month-row.quiet .name, .month-row.quiet .n { color: var(--muted); font-weight: 400; }
+.meter { flex: 1; min-width: 26px; height: 6px; background: var(--ring-bg); border-radius: 3px; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.month-row.partial .meter i { background: var(--ring-bg); box-shadow: inset 0 0 0 1px var(--muted); }
+.banner .fix { margin-top: 8px; }
+#h-visit-summary { margin-top: 6px; }
+.streak.trouble { color: var(--muted); }
+
 /* ---- Tabs. Only the two screens you land on carry them; the gate, settings
    and history are places you go and come back from. ---- */
 .tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px;

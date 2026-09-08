@@ -4,6 +4,7 @@ const blocker = require('./blocker');
 const stats = require('./stats');
 const pomodoro = require('./pomodoro');
 const noise = require('./noise');
+const visits = require('./visits');
 
 // A diagnostic entry point. Runs one authenticated round trip to the daemon and
 // exits, so the socket and the code-signature check can be proven from the real
@@ -249,6 +250,7 @@ ipcMain.handle('gate-passed', async (_e, purpose) => {
     case 'unlock': {
         try {
         const r = await blocker.unlockFor(UNLOCK_MINUTES);
+        visits.nudge(); // start the window's clock now, not up to a poll later
         return {
           ok: true,
           remaining: Math.max(0, r.unlock_until - Math.floor(Date.now() / 1000)),
@@ -306,7 +308,14 @@ ipcMain.handle('noise-folder', () => {
   return { ok: true };
 });
 
-ipcMain.handle('lock-now', async () => { await blocker.lockNow(); return { ok: true }; });
+// ---- Visits. Reads only, and only while an unlock is running. It cannot make
+// the blocker looser, and switching it off would cost nothing if it ever had a
+// switch — it is not part of the block decision. ----
+ipcMain.handle('get-visit-status', () => visits.status());
+ipcMain.handle('get-visits', () => visits.read());
+ipcMain.handle('open-automation-settings', () => visits.openAutomationSettings());
+
+ipcMain.handle('lock-now', async () => { await blocker.lockNow(); visits.nudge(); return { ok: true }; });
 ipcMain.handle('get-sites', () => blocker.readSites());
 ipcMain.handle('set-sites', async (_e, list) => { await blocker.writeSites(list); return { ok: true }; });
 
@@ -337,6 +346,7 @@ app.whenReady().then(async () => {
 
   pomodoro.init();
   noise.init();
+  visits.init({ unlockMinutes: UNLOCK_MINUTES });
   // One source of truth for the countdown: the main process pushes it to both
   // the menu bar and the panel, so a hidden window cannot drift from the tray.
   pomodoro.onChange((s) => {
@@ -357,4 +367,8 @@ app.on('window-all-closed', (e) => {
 
 // Any quit path (menu-bar "Quit GazeGate", ⌘Q, tray, modal) funnels through
 // here — allow the window's close handler to actually close instead of hiding.
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => {
+  quitting = true;
+  // The visit in flight is only in memory until this runs.
+  visits.flush();
+});

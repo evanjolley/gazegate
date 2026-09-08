@@ -167,6 +167,7 @@ those sites.
 | Menu bar job | `~/Library/LaunchAgents/com.gazegate.app.plist` |
 | Timer and sound settings | `~/Library/Application Support/GazeGate` |
 | Your own sound files | `~/Library/Application Support/GazeGate/sounds` |
+| What you did with your unlocks | `~/Library/Application Support/GazeGate/visits.jsonl` |
 
 Nothing under your home directory affects blocking. The timer and the sound library keep
 their settings there, and neither of them can reach the daemon. Older versions kept the unlock
@@ -176,8 +177,8 @@ values once and then deletes them.
 ### History
 
 Every block and unblock the daemon has ever applied is timestamped in `daemon.log`, which
-is where all the stats come from. Nothing is tracked anywhere else and nothing leaves your
-machine.
+is where the block history comes from. What you do with an unlock once you have earned it is
+recorded separately, described below. Nothing leaves your machine.
 
 Stretches longer than a normal unlock window are treated as the blocker having been off
 rather than as unlocks, and are reported separately, so a day when the tool was broken does
@@ -185,6 +186,38 @@ not get counted against you.
 
 Sundays and days the blocker was off are skipped when counting clean-day streaks. They
 neither extend a streak nor break one.
+
+### What the unlock buys
+
+Knowing you unlocked ten minutes tells you nothing about whether you needed them. So while
+an unlock is running, GazeGate records how long you actually spend on the sites you just
+paid a stare for.
+
+It watches the front browser and nothing else. Every three seconds it asks Launch Services
+which app is frontmost, and only when that is a browser you are actually looking at does it
+ask that browser for its address. A browser sitting behind another window is never asked.
+Time only accrues while the display is awake and you are not idle, so a tab left open
+overnight is worth nothing.
+
+A host that does not match your blocklist is discarded before anything is written. This is a
+record of the four sites you asked to be walled off from, not a log of your browsing, and the
+matching happens before the write rather than after so there is no moment where the rest of
+it exists on disk.
+
+The numbers live in `visits.jsonl` next to the timer and sound settings, in your home
+directory, where nothing can reach the daemon. The daemon neither knows nor cares that any of
+this exists.
+
+The one that matters is on the home panel. Ten minutes bought against four minutes spent.
+Raw minutes only tell you how much and a top site only tells you where, and neither of those
+is about the trade you made.
+
+The app has to be running to see any of it. An unlock that started before the app did is
+marked partial and kept out of every average, because a window we only watched half of would
+otherwise read as a short one.
+
+Your first unlock after installing this will ask permission to read the browser's address.
+Refusing it costs you the numbers and nothing else.
 
 ## Honest limits
 
@@ -209,7 +242,8 @@ main.js       menu bar panel, tray, window lifecycle
 blocker.js    reads root state, asks the daemon for changes, installs it
 pomodoro.js   the focus timer, which keeps its own clock
 noise.js      finds sound files and hands their bytes to the renderer
-stats.js      parses daemon.log into history
+visits.js     watches the front browser while an unlock runs
+stats.js      parses daemon.log and visits.jsonl into history
 preload.js    the IPC surface exposed to the renderer
 renderer/     the panel UI
 assets/sounds the loop library and its credits

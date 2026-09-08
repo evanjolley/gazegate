@@ -44,6 +44,7 @@ async function refresh() {
   escalate = s.escalate;
 
   show('update-banner', s.needsUpdate);
+  refreshVisitStatus().catch(() => {});
   window.gazegate.getStats().then(paintHomeStats).catch(() => {});
 
   const badge = $('status-badge');
@@ -473,6 +474,165 @@ function drawClock(hours) {
   }));
 }
 
+// ---- Visits ----
+// Unlocks say how often the gate opened. Visits say what came through it. The
+// numbers arrive already folded by stats.js; nothing here recomputes them.
+
+const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// Seconds as something you can read at a glance. Under ten minutes the seconds
+// still matter, because the whole point is that four minutes is not ten.
+function dur(sec) {
+  const s = Math.max(0, Math.round(sec || 0));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return m < 10 && s % 60 ? `${m}m ${pad2(s % 60)}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+}
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// A tracker that cannot see the browser must say so. Zeros from a broken
+// tracker read exactly like a clean week, which is the one lie this feature
+// could tell.
+const VISIT_TROUBLE = {
+  'no-permission': 'Visits are not being recorded. Automation permission for your browser was denied.',
+  'no-browser': 'Visits are not being recorded. No supported browser is running.',
+  error: 'Visits are not being recorded. The tracker stopped.',
+};
+let visitStatus = null;
+let visitStatusAt = 0;
+
+async function refreshVisitStatus(force) {
+  if (typeof window.gazegate.getVisitStatus !== 'function') return null;
+  if (!force && Date.now() - visitStatusAt < 5000) return visitStatus;
+  visitStatusAt = Date.now();
+  try { visitStatus = await window.gazegate.getVisitStatus(); }
+  catch { visitStatus = { state: 'error', message: '' }; }
+  return visitStatus;
+}
+const visitTrouble = () =>
+  !!(visitStatus && visitStatus.state && visitStatus.state !== 'ok' && visitStatus.state !== 'idle');
+// Never offer the recovery button unless there is something behind it.
+const canFixPermission = () =>
+  visitStatus && visitStatus.state === 'no-permission' &&
+  typeof window.gazegate.openAutomationSettings === 'function';
+
+// The single number on home is used against earned.
+//
+// Raw minutes on a site only say how much, and the top site only says where.
+// Used against earned says whether the thing he paid thirty seconds of eye
+// contact for was the thing he wanted: ten minutes bought, four minutes spent,
+// six minutes he did not actually need. It is the only one of these numbers
+// that is about the trade rather than the appetite, and it is the one that gets
+// better on its own as the habit does. First touch and per-site totals are
+// interesting, but they are history, and history lives in the history view.
+function paintHomeVisits(v) {
+  const line = $('st-visits');
+
+  if (visitTrouble()) {
+    line.className = 'streak trouble';
+    line.style.display = '';
+    const short = {
+      'no-permission': 'no Automation permission',
+      'no-browser': 'no supported browser running',
+      error: String(visitStatus.message || '').trim() || 'the tracker stopped',
+    }[visitStatus.state] || 'the tracker is not running';
+    line.innerHTML = `Visits not tracked — ${esc(short)}.` +
+      (canFixPermission() ? ' <a class="link" id="st-visit-fix">Open settings</a>' : '');
+    const fix = $('st-visit-fix');
+    // The stats block itself opens history, so the link has to keep its click.
+    if (fix) fix.onclick = (e) => { e.stopPropagation(); window.gazegate.openAutomationSettings(); };
+    return;
+  }
+
+  line.className = 'streak';
+  if (!v || v.usedShare === null || !v.completeWindows) { line.style.display = 'none'; return; }
+  line.style.display = '';
+  line.innerHTML = `<b>${dur(v.avgUsedSeconds)}</b> used of each ${dur(v.avgGrantedSeconds)} unlocked`;
+}
+
+function paintVisits(v) {
+  // Tracker state first. Whatever follows it is only as true as the tracker is.
+  const status = $('h-visit-status');
+  if (visitTrouble()) {
+    status.style.display = '';
+    const state = visitStatus.state;
+    const msg = VISIT_TROUBLE[state] || 'Visits are not being recorded.';
+    // The message comes from the tracker, so it may or may not end in a full
+    // stop. Give it one rather than running it into the sentence after it.
+    const raw = String(visitStatus.message || '').trim();
+    const detail = state === 'error' && raw ? ` ${esc(/[.?]$/.test(raw) ? raw : raw + '.')}` : '';
+    status.innerHTML = `<div>${msg}${detail} The numbers below stop where the tracker did.</div>` +
+      (canFixPermission() ? '<button class="tiny fix" id="btn-visit-perm">Open Automation settings</button>' : '');
+    const btn = $('btn-visit-perm');
+    if (btn) btn.onclick = () => window.gazegate.openAutomationSettings();
+  } else {
+    status.style.display = 'none';
+  }
+
+  const empty = '<p class="hint">Nothing recorded yet.</p>';
+  if (!v || !v.records) {
+    $('h-visit-summary').textContent = 'Nothing recorded yet.';
+    $('h-sites').innerHTML = '';
+    $('h-first').innerHTML = empty;
+    $('h-windows').innerHTML = empty;
+    return;
+  }
+
+  // The headline. Partial and untracked windows are named here rather than
+  // folded into the averages above them.
+  const parts = [];
+  if (v.completeWindows) {
+    parts.push(`${dur(v.earnedSeconds)} earned and ${dur(v.usedSeconds)} used across ` +
+      `${v.completeWindows} fully watched unlock${v.completeWindows === 1 ? '' : 's'}.`);
+  } else {
+    parts.push('No unlock has been watched end to end yet.');
+  }
+  if (v.partialWindows) parts.push(`${v.partialWindows} partial, left out of the averages.`);
+  if (v.untrackedWindows) parts.push(`${v.untrackedWindows} not tracked at all.`);
+  if (v.badLines) parts.push(`${v.badLines} unreadable line${v.badLines === 1 ? '' : 's'} skipped.`);
+  $('h-visit-summary').textContent = parts.join(' ');
+
+  const sPeak = Math.max(1, ...v.sites.map((s) => s.seconds));
+  $('h-sites').innerHTML = v.sites.length ? v.sites.map((s) => `<div class="month-row"
+      title="${esc(s.site)} · ${s.visits} visit${s.visits === 1 ? '' : 's'} across ${s.windows} unlock${s.windows === 1 ? '' : 's'}">
+      <span class="name site">${esc(s.site)}</span>
+      <span class="bar" style="width:${Math.round((s.seconds / sPeak) * 45)}%"></span>
+      <span class="dur">${dur(s.seconds)}</span></div>`).join('') : empty;
+
+  const fPeak = Math.max(1, ...v.firstTouch.map((f) => f.count));
+  const firstRows = v.firstTouch.map((f) => `<div class="month-row">
+      <span class="name site">${esc(f.site)}</span>
+      <span class="bar" style="width:${Math.round((f.count / fPeak) * 45)}%"></span>
+      <span class="n">${f.count} · ${Math.round(f.share * 100)}%</span></div>`);
+  if (v.noTouchWindows) {
+    firstRows.push(`<div class="month-row quiet">
+      <span class="name site">nothing opened</span>
+      <span class="n">${v.noTouchWindows} · ${Math.round((v.noTouchWindows / Math.max(1, v.completeWindows)) * 100)}%</span></div>`);
+  }
+  $('h-first').innerHTML = firstRows.length ? firstRows.join('') : empty;
+
+  // Newest first, and only as far back as the panel is worth scrolling.
+  const SHOWN = 40;
+  const rows = v.windows.slice(0, SHOWN).map((w) => {
+    const frac = w.grantedSeconds ? Math.min(1, w.usedSeconds / w.grantedSeconds) : 0;
+    const detail = w.sites.length
+      ? w.sites.map((s) => `${s.site} ${dur(s.seconds)}`).join(', ')
+      : 'nothing opened';
+    return `<div class="month-row${w.partial ? ' partial' : ''}" title="${esc(detail)}">
+      <span class="when">${esc(w.date.slice(5))} ${esc(w.time)}</span>
+      <span class="meter"><i style="width:${Math.round(frac * 100)}%"></i></span>
+      <span class="dur">${dur(w.usedSeconds)} / ${w.grantedSeconds ? dur(w.grantedSeconds) : '—'}</span>
+      ${w.partial ? '<span class="tag">partial</span>' : ''}</div>`;
+  });
+  if (v.windows.length > SHOWN) {
+    rows.push(`<p class="hint" style="margin-top:6px">Showing the last ${SHOWN} of ${v.windows.length}.</p>`);
+  }
+  $('h-windows').innerHTML = rows.length ? rows.join('') : empty;
+}
+
 function paintHomeStats(st) {
   const box = $('stats');
   if (!st || !st.hasLog) { box.style.display = 'none'; return; }
@@ -498,6 +658,8 @@ function paintHomeStats(st) {
     dot.title = `${d.date} · ${d.off ? 'blocker off' : d.count + ' unlocks'}`;
     $('st-dots').appendChild(dot);
   }
+
+  paintHomeVisits(st.visits);
 }
 
 function paintHistory(st) {
@@ -554,6 +716,8 @@ function paintHistory(st) {
       <span class="n">${n}</span></div>`;
   }).join('');
 
+  paintVisits(st.visits);
+
   $('h-outages').innerHTML = st.outages.length
     ? st.outages.map(o => {
         const len = o.minutes >= 60 ? `${Math.round(o.minutes / 60)}h` : `${o.minutes}m`;
@@ -566,6 +730,7 @@ function paintHistory(st) {
 $('stats').onclick = async () => {
   const st = await window.gazegate.getStats();
   if (!st.hasLog) return;
+  await refreshVisitStatus(true).catch(() => {});
   paintHistory(st);
   showView('history');
 };

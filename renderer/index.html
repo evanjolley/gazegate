@@ -48,6 +48,7 @@
       </div>
       <svg id="clock" viewBox="0 0 200 200" aria-label="unlocks by hour"></svg>
       <div id="st-streak" class="streak"></div>
+      <div id="st-visits" class="streak" style="display:none"></div>
       <div id="st-dots" class="dots" aria-label="last 30 days"></div>
       <p class="hint tap">Full history →</p>
     </div>
@@ -185,6 +186,23 @@
 
       <h2 class="sec">By month</h2>
       <div id="h-months" class="months"></div>
+
+      <h2 class="sec">What the unlock buys</h2>
+      <p class="hint">Time spent on the blocked sites while they were open. Attention seconds,
+        so a tab left in the background does not count.</p>
+      <div id="h-visit-status" class="banner" style="display:none"></div>
+      <p class="hint" id="h-visit-summary"></p>
+      <div id="h-sites" class="months"></div>
+
+      <h2 class="sec">First touch</h2>
+      <p class="hint">The site you open first once the block lifts. Counted only on unlocks
+        the tracker watched from the start.</p>
+      <div id="h-first" class="months"></div>
+
+      <h2 class="sec">Every unlock</h2>
+      <p class="hint">Earned against used. Partial ones were watched for only part of the
+        window, so they are marked here and left out of the averages.</p>
+      <div id="h-windows" class="months"></div>
 
       <h2 class="sec">When the blocker was off</h2>
       <p class="hint">Not unlocks. These are stretches where blocking had stopped working,
