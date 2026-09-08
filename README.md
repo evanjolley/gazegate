@@ -27,6 +27,10 @@ and you get the full history.
 To unlock, press Unlock and stare into the lens until the ring fills. To lock back up
 early, press Lock now, which is free, because making things stricter always is.
 
+That is the Blocker tab, and everything else in this README is about it. There are two
+more. Focus is a pomodoro timer and Sound is a library of loops. Neither can change what
+is blocked, and neither talks to the daemon.
+
 ## The one rule the whole thing follows
 
 Making it stricter is free. Making it looser costs a stare.
@@ -41,6 +45,53 @@ Turn it on in Settings and every unlock doubles what the next one costs that day
 seconds, then sixty, then a hundred and twenty, capped at ten minutes, reset at midnight.
 
 Turning it on is free. Turning it off costs one stare at whatever the price currently is.
+
+## Focus timer
+
+Twenty five minutes of focus, five of break, fifteen after every fourth block. All four
+numbers are editable, and a new length applies to the next block rather than the one
+already running.
+
+Intervals do not roll into each other. When one ends you get a chime and a notification,
+and the next one waits until you press start, so nothing counts down while you are away
+from the desk.
+
+The countdown lives in the main process rather than the panel, because the panel hides
+itself the moment you click away, and a timer that only exists inside a hidden window is a
+timer you cannot trust. Time left comes from an end timestamp instead of a tally of ticks,
+so sleeping the Mac mid block gives you a finished timer rather than a paused one.
+
+While a block runs, the menu bar drops the eye and shows the countdown on its own.
+
+The chime is any macOS system sound, picked in the tab, with a test button beside it.
+
+## Sound
+
+Six loops and a slot for one of your own.
+
+Rain, ocean and stream are CC0 field recordings from Wikimedia Commons, credited by author
+and source in `assets/sounds/CREDITS.md`. Wind, brown noise and white noise are generated
+by ffmpeg, wind because no wind recording with a license clean enough to redistribute
+exists there.
+
+`scripts/build-sounds.py` rebuilds the library from its sources, so the audio here is
+reproducible rather than a pile of binaries you have to take on faith. Each track is cut
+into a seamless loop by overlapping the material that follows the loop body onto its head
+with an equal power crossfade. They are Ogg Opus rather than MP3, because MP3 carries
+encoder padding that puts a silent gap at every loop point. All of them sit at minus twenty
+LUFS, so switching between them does not jump.
+
+Playback is Web Audio in the renderer, the only thing here that loops a buffer without a
+seam. The panel hides rather than closes, so a loop keeps running after you click away, and
+the tray offers to stop it without reopening the panel.
+
+Drop a file named `home` into `~/Library/Application Support/GazeGate/sounds` and it turns
+up in the list with no rebuild. Ogg, Opus, MP3, M4A, AAC, WAV and FLAC all work. That
+folder overrides any track by name, not just home, so a real recording replaces the
+synthesized wind the same way.
+
+A decoded track is large, roughly seventy megabytes of PCM for a three minute one, so only
+the playing track and the one before it are held in memory.
 
 ## Install
 
@@ -114,8 +165,11 @@ those sites.
 | Request socket | `/var/run/gazegate.sock` |
 | Daemon job | `/Library/LaunchDaemons/com.gazegate.blocker.plist` |
 | Menu bar job | `~/Library/LaunchAgents/com.gazegate.app.plist` |
+| Timer and sound settings | `~/Library/Application Support/GazeGate` |
+| Your own sound files | `~/Library/Application Support/GazeGate/sounds` |
 
-Nothing under your home directory affects blocking any more. Older versions kept the unlock
+Nothing under your home directory affects blocking. The timer and the sound library keep
+their settings there, and neither of them can reach the daemon. Older versions kept the unlock
 timestamp in `~/Library/Application Support/GazeGate`, and the installer migrates those
 values once and then deletes them.
 
@@ -153,10 +207,13 @@ friction enough.
 daemon/       gazegated.swift, the root daemon and its socket
 main.js       menu bar panel, tray, window lifecycle
 blocker.js    reads root state, asks the daemon for changes, installs it
+pomodoro.js   the focus timer, which keeps its own clock
+noise.js      finds sound files and hands their bytes to the renderer
 stats.js      parses daemon.log into history
 preload.js    the IPC surface exposed to the renderer
 renderer/     the panel UI
-scripts/      both launchd jobs
+assets/sounds the loop library and its credits
+scripts/      both launchd jobs, and the sound build
 ```
 
 `npm run build:daemon` compiles the daemon on its own. `npm run dist` does that and then
@@ -209,6 +266,10 @@ Electron binary is not a permitted camera client. Test with the packaged app.
 
 launchd throttles respawns to about ten seconds, so wait longer than that before deciding
 crash recovery is broken.
+
+MP3 padding puts a silent gap at every loop point, which is why the sound library is Ogg
+Opus. Rerunning `scripts/build-sounds.py` re-encodes every track, so all of them show up as
+modified in git even when nothing about them changed.
 
 The daemon refuses anything it cannot attribute to a correctly signed GazeGate. If you
 change the bundle identifier or sign with a different team, update `REQUIREMENT` in
