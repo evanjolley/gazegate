@@ -717,7 +717,11 @@ let current = null;       // { src, gain } of whatever is playing
 let playingId = null;
 let noiseVolume = 0.6;
 let noiseEntries = [];
+// Decoded audio is big — a three minute stereo track is about 70MB of PCM —
+// so only the playing track and the one before it are kept. This is a menu bar
+// app that runs all day; caching all eight would be a couple hundred MB.
 const buffers = new Map();
+const BUFFER_CACHE = 2;
 const FADE = 0.6;         // seconds, long enough that starting a loop is not a click
 
 // A linear slider that behaves like a volume knob rather than jumping to loud
@@ -735,15 +739,29 @@ function ensureAudio() {
   return audioCtx;
 }
 
+function remember(id, buf) {
+  buffers.delete(id);
+  buffers.set(id, buf); // re-inserting puts it last, so the map is in use order
+  for (const key of [...buffers.keys()]) {
+    if (buffers.size <= BUFFER_CACHE) break;
+    if (key === id || key === playingId) continue;
+    buffers.delete(key);
+  }
+}
+
 async function loadBuffer(id) {
-  if (buffers.has(id)) return buffers.get(id);
+  if (buffers.has(id)) {
+    const hit = buffers.get(id);
+    remember(id, hit);
+    return hit;
+  }
   const bytes = await window.gazegate.noiseRead(id);
   if (!bytes || !bytes.byteLength) throw new Error('file missing');
   // The IPC copy arrives as a view into a larger buffer; decodeAudioData wants
   // its own ArrayBuffer, and it detaches whatever it is given.
   const arr = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const buf = await ensureAudio().decodeAudioData(arr);
-  buffers.set(id, buf);
+  remember(id, buf);
   return buf;
 }
 
@@ -795,9 +813,10 @@ function paintNoiseList() {
   const ul = $('noise-list');
   if (!ul) return;
   ul.innerHTML = noiseEntries.map((e) => {
-    const note = e.available
-      ? (e.custom ? e.note + ' · your file' : e.note)
-      : (e.id === 'home' ? 'Drop a file named home into the sounds folder' : 'File missing');
+    const note = !e.available
+      ? (e.id === 'home' ? 'Drop a file named home into the sounds folder' : 'File missing')
+      : (e.custom && e.id !== 'home') ? e.note + ' · your file'
+      : e.note;
     return `<li class="sound${e.id === playingId ? ' on' : ''}${e.available ? '' : ' off'}" data-id="${e.id}">
       <div class="sound-main"><b>${e.name}</b><span>${note}</span></div>
       <div class="bars"><i></i><i></i><i></i></div>
@@ -808,6 +827,10 @@ function paintNoiseList() {
     li.onclick = () => (li.dataset.id === playingId ? stopNoise() : playNoise(li.dataset.id));
   });
   $('btn-noise-stop').disabled = !playingId;
+  // Eight tracks do not quite fit, and the one playing is the one you want to
+  // see — particularly Home, which sits at the bottom.
+  const active = ul.querySelector('.sound.on');
+  if (active && currentView === 'noise') active.scrollIntoView({ block: 'nearest' });
 }
 
 $('noise-vol').oninput = () => {

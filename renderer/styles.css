@@ -202,14 +202,14 @@ button.tiny { padding: 8px 12px; font-size: 12px; }
 .sound-list { list-style: none; }
 .sound {
   display: flex; align-items: center; gap: 12px;
-  padding: 11px 13px; border-radius: 11px; margin-bottom: 6px;
+  padding: 9px 13px; border-radius: 10px; margin-bottom: 5px;
   background: var(--panel); cursor: pointer;
   transition: filter .12s ease;
 }
 .sound:hover { filter: brightness(1.18); }
 .sound .sound-main { flex: 1; min-width: 0; }
-.sound b { display: block; font-size: 14px; font-weight: 600; }
-.sound span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.sound b { display: block; font-size: 13.5px; font-weight: 600; }
+.sound span { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
 .sound.on { background: #16301f; }
 .sound.on b { color: var(--accent); }
 .sound.off { opacity: .55; cursor: default; }

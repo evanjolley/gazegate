@@ -33,8 +33,6 @@ Built by ffmpeg in `scripts/build-sounds.py`, no third-party material.
 
 **Brown noise** (`brown.ogg`) — `anoisesrc=color=brown:amplitude=0.8` through `highpass=f=30`, 30s loop
 
-**Pink noise** (`pink.ogg`) — `anoisesrc=color=pink:amplitude=0.5` through `highpass=f=30`, 30s loop
-
 **White noise** (`white.ogg`) — `anoisesrc=color=white:amplitude=0.4` through `highpass=f=30`, 30s loop
 
 **Wind** (`wind.ogg`) — `anoisesrc=color=brown:amplitude=0.9` through `highpass=f=80,lowpass=f=1100,tremolo=f=0.11:d=0.6,tremolo=f=0.17:d=0.4`, 60s loop

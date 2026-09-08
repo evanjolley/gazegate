@@ -19,9 +19,8 @@ const LIBRARY = [
   { id: 'stream', name: 'Stream',      note: 'Water close over rocks' },
   { id: 'wind',   name: 'Wind',        note: 'Gusting. Synthesized, not recorded' },
   { id: 'brown',  name: 'Brown noise', note: 'Deep and dull, the usual pick' },
-  { id: 'pink',   name: 'Pink noise',  note: 'Between brown and white' },
   { id: 'white',  name: 'White noise', note: 'Bright and flat' },
-  { id: 'home',   name: 'Home',        note: 'Yours to supply' },
+  { id: 'home',   name: 'Home',        note: 'Your own track' },
 ];
 
 // Bundled first, then a folder you can drop files into without rebuilding.

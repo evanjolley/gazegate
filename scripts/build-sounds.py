@@ -48,8 +48,6 @@ RECORDINGS = [
 GENERATED = [
     dict(id='brown', name='Brown noise', length=30, fade=2,
          src='anoisesrc=color=brown:amplitude=0.8', filters='highpass=f=30'),
-    dict(id='pink', name='Pink noise', length=30, fade=2,
-         src='anoisesrc=color=pink:amplitude=0.5', filters='highpass=f=30'),
     dict(id='white', name='White noise', length=30, fade=2,
          src='anoisesrc=color=white:amplitude=0.4', filters='highpass=f=30'),
     dict(id='wind', name='Wind', length=60, fade=3,
