@@ -140,3 +140,60 @@ a.link { color: var(--accent); text-decoration: none; cursor: pointer; font-size
 .month-row .name { width: 74px; color: var(--muted); }
 .month-row .bar { height: 6px; background: var(--accent); border-radius: 3px; min-width: 2px; }
 .month-row .n { color: var(--text); font-weight: 600; }
+
+/* ---- Tabs. Only the two screens you land on carry them; the gate, settings
+   and history are places you go and come back from. ---- */
+.tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px;
+        background: var(--panel); align-self: flex-start; }
+.tabs button {
+  background: transparent; padding: 6px 14px; border-radius: 8px;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.tabs button:hover { filter: none; color: var(--text); }
+.tabs button.on { background: #262b34; color: var(--text); }
+
+/* ---- Focus timer ---- */
+.pomo { flex: 1; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 10px; min-height: 0; }
+.pomo-phase { font-size: 13px; font-weight: 650; letter-spacing: .4px;
+              text-transform: uppercase; color: var(--muted); }
+.pomo-phase.focus { color: var(--accent); }
+
+.dial { position: relative; width: 214px; height: 214px; }
+.dial svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.dial-bg { fill: none; stroke: var(--ring-bg); stroke-width: 8; }
+.dial-arc { fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round;
+            transition: stroke-dashoffset .25s linear; }
+.dial-arc.rest { stroke: #60a5fa; }
+.dial-time {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 46px; font-weight: 700; letter-spacing: -1.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pomo-rounds { display: flex; gap: 6px; }
+.round-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ring-bg); }
+.round-dot.done { background: var(--accent); }
+#pomo-note, #pomo-today { text-align: center; }
+
+.pomo-config { border-top: 1px solid #1e232b; padding-top: 12px; margin-top: 8px; }
+.field-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.field-row label { font-size: 13px; color: var(--text); width: 86px; }
+.field-row input[type="number"] { flex: 0 0 74px; padding: 8px 10px; font-size: 13px; }
+.field-row select {
+  flex: 1; font-family: inherit; font-size: 13px; font-weight: 600;
+  background: var(--panel); color: var(--text);
+  border: 1px solid #262b34; border-radius: 9px; padding: 8px 10px;
+}
+button.tiny { padding: 8px 12px; font-size: 12px; }
+
+/* With the lengths open, the dial steps back rather than fighting the fields
+   for a 640px panel. */
+#view-pomodoro.configuring .pomo { flex: 0 0 auto; gap: 6px; margin: 8px 0 2px; }
+#view-pomodoro.configuring .dial { width: 92px; height: 92px; }
+#view-pomodoro.configuring .dial-bg,
+#view-pomodoro.configuring .dial-arc { stroke-width: 12; }
+#view-pomodoro.configuring .dial-time { font-size: 21px; letter-spacing: -0.5px; }
+#view-pomodoro.configuring .pomo-rounds,
+#view-pomodoro.configuring #pomo-note,
+#view-pomodoro.configuring #pomo-today { display: none; }
+#view-pomodoro.configuring .pomo-config { flex: 1; min-height: 0; overflow-y: auto; }

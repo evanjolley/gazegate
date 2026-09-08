@@ -19,7 +19,7 @@ const BLINK_MAX = 0.55;
 
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => { $(id).style.display = on ? '' : 'none'; };
-const views = ['install', 'home', 'gate', 'settings', 'history'];
+const views = ['install', 'home', 'pomodoro', 'gate', 'settings', 'history'];
 let currentView = null;
 function showView(name) {
   currentView = name;
@@ -35,7 +35,7 @@ async function refresh() {
 
   // Land on home from a cold boot (nothing shown yet) or straight after install.
   // Any other view — gate, settings — is the user's, so polling must not steal it.
-  if (currentView === null || currentView === 'install') showView('home');
+  if (currentView === null || currentView === 'install') showTab('home');
 
   gateSeconds = s.gateSeconds;
   baseGateSeconds = s.baseGateSeconds;
@@ -248,7 +248,7 @@ $('btn-install').onclick = async () => {
   $('btn-install').disabled = true;
   $('btn-install').textContent = 'Waiting for admin password…';
   const r = await window.gazegate.installDaemon();
-  if (r.ok) { await refresh(); showView('home'); }
+  if (r.ok) { await refresh(); showTab('home'); }
   else {
     $('install-err').textContent = r.error || 'Install failed';
     $('btn-install').disabled = false;
@@ -269,7 +269,7 @@ async function startUnlock() {
     }
   }
   await refresh();
-  showView('home');
+  showTab('home');
 }
 
 $('btn-primary').onclick = async () => {
@@ -300,12 +300,12 @@ $('btn-sunday-open').onclick = async () => {
     `You turned blocking on for today. Opening back up needs ${gateSeconds} seconds of eye contact.`);
   if (passed) await window.gazegate.sundayClear();
   await refresh();
-  showView('home');
+  showTab('home');
 };
 
 $('btn-settings').onclick = async () => {
   const passed = await runGate('settings', 'Eye contact to open settings', `Changing what gets blocked needs the same commitment. ${gateSeconds} seconds.`);
-  if (!passed) { showView('home'); return; }
+  if (!passed) { showTab('home'); return; }
   await window.gazegate.gatePassed('settings');
 
   const [core, sites] = await Promise.all([
@@ -322,7 +322,7 @@ $('btn-settings').onclick = async () => {
   showView('settings');
 };
 
-$('btn-settings-back').onclick = () => showView('home');
+$('btn-settings-back').onclick = () => showTab('home');
 
 $('btn-save-sites').onclick = async () => {
   const list = $('sites').value.split('\n').map(s => s.trim()).filter(Boolean);
@@ -570,12 +570,141 @@ $('stats').onclick = async () => {
   showView('history');
 };
 
-$('btn-history-back').onclick = () => showView('home');
+$('btn-history-back').onclick = () => showTab('home');
 
 window.gazegate.onNavigate((view) => {
   if (view === 'gate-unlock') startUnlock();
-  else showView('home');
+  else if (view === 'pomodoro') showTab('pomodoro');
+  // Clicking the menu bar while a countdown is showing means you came for the
+  // countdown, so open on it rather than on the blocker.
+  else showTab(pomo && pomo.status !== 'idle' ? 'pomodoro' : 'home');
 });
 
+// ---------- focus timer ----------
+// The countdown itself belongs to the main process. Everything here paints
+// what it is told and sends button presses back. It never touches the blocker.
+
+const POMO_LABEL = { focus: 'Focus', break: 'Break', long: 'Long break' };
+const DIAL_C = 2 * Math.PI * 88;
+let pomo = null;
+let configOpen = false;
+
+const clock = (sec) => {
+  const m = Math.floor(Math.max(0, sec) / 60);
+  const s = Math.max(0, sec) % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+};
+
+function showTab(name) {
+  document.querySelectorAll('.tabs button').forEach(b =>
+    b.classList.toggle('on', b.dataset.tab === name));
+  showView(name);
+  if (name === 'pomodoro') window.gazegate.pomoGet().then(paintPomodoro);
+}
+document.querySelectorAll('.tabs button').forEach(b => {
+  b.onclick = () => showTab(b.dataset.tab);
+});
+
+function paintPomodoro(s) {
+  if (!s) return;
+  pomo = s;
+  const counting = s.status === 'running' || s.status === 'paused';
+  const phase = counting ? s.phase : s.next;
+
+  $('pomo-phase').textContent = POMO_LABEL[phase] + (s.status === 'paused' ? ' · paused' : '');
+  $('pomo-phase').className = 'pomo-phase' + (phase === 'focus' ? ' focus' : '');
+  $('pomo-time').textContent = clock(s.remainingSec);
+
+  const frac = s.totalSec ? Math.max(0, Math.min(1, s.remainingSec / s.totalSec)) : 1;
+  const arc = $('pomo-arc');
+  arc.setAttribute('stroke-dasharray', DIAL_C);
+  arc.setAttribute('stroke-dashoffset', String(DIAL_C * (1 - frac)));
+  arc.classList.toggle('rest', phase !== 'focus');
+
+  // Dots for where you are in the cycle. A finished fourth block fills all four
+  // rather than wrapping straight back to none.
+  const per = s.config.roundsBeforeLong;
+  const done = s.round === 0 ? 0 : ((s.round - 1) % per) + 1;
+  $('pomo-rounds').innerHTML = Array.from({ length: per },
+    (_, i) => `<div class="round-dot${i < done ? ' done' : ''}"></div>`).join('');
+
+  const note = $('pomo-note');
+  if (s.status === 'running') {
+    const end = new Date(Date.now() + s.remainingSec * 1000);
+    note.textContent = 'Ends at ' + end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } else if (s.status === 'paused') {
+    note.textContent = 'Paused. The clock is stopped.';
+  } else if (s.status === 'done') {
+    note.textContent = s.phase === 'focus' ? 'Focus block done.' : 'Break over.';
+  } else {
+    note.textContent = `${s.config.focusMinutes} minutes, then a ${s.config.breakMinutes} minute break.`;
+  }
+
+  $('pomo-today').textContent = s.completedToday
+    ? `${s.completedToday} focus block${s.completedToday === 1 ? '' : 's'} today`
+    : '';
+
+  $('btn-pomo-primary').textContent =
+    s.status === 'running' ? 'Pause'
+    : s.status === 'paused' ? 'Resume'
+    : `Start ${POMO_LABEL[s.next].toLowerCase()}`;
+  $('btn-pomo-reset').disabled = s.status === 'idle';
+
+  if (!configOpen) fillPomoConfig(s.config);
+}
+
+function fillPomoConfig(c) {
+  $('pomo-focus').value = c.focusMinutes;
+  $('pomo-break').value = c.breakMinutes;
+  $('pomo-long').value = c.longBreakMinutes;
+  $('pomo-rounds-n').value = c.roundsBeforeLong;
+  const sel = $('pomo-sound');
+  if (sel.value !== c.sound && [...sel.options].some(o => o.value === c.sound)) sel.value = c.sound;
+}
+
+$('btn-pomo-primary').onclick = async () => {
+  const s = pomo && pomo.status === 'running'
+    ? await window.gazegate.pomoPause()
+    : await window.gazegate.pomoStart();
+  paintPomodoro(s);
+};
+$('btn-pomo-reset').onclick = async () => paintPomodoro(await window.gazegate.pomoReset());
+
+$('btn-pomo-config').onclick = () => {
+  configOpen = !configOpen;
+  show('pomo-config', configOpen);
+  $('view-pomodoro').classList.toggle('configuring', configOpen);
+  $('btn-pomo-config').textContent = configOpen ? 'Done' : 'Lengths & sound';
+  if (configOpen && pomo) fillPomoConfig(pomo.config);
+};
+
+async function savePomoConfig() {
+  const s = await window.gazegate.pomoSetConfig({
+    focusMinutes: $('pomo-focus').value,
+    breakMinutes: $('pomo-break').value,
+    longBreakMinutes: $('pomo-long').value,
+    roundsBeforeLong: $('pomo-rounds-n').value,
+    sound: $('pomo-sound').value,
+  });
+  // The main process clamps, so paint back whatever it actually kept.
+  paintPomodoro(s);
+  fillPomoConfig(s.config);
+}
+['pomo-focus', 'pomo-break', 'pomo-long', 'pomo-rounds-n', 'pomo-sound']
+  .forEach(id => { $(id).onchange = savePomoConfig; });
+
+$('btn-pomo-test').onclick = () => window.gazegate.pomoTestSound($('pomo-sound').value);
+
+// Pushed from the main process on every displayed second, so the panel and the
+// menu bar can never disagree about how much time is left.
+window.gazegate.onPomodoro(paintPomodoro);
+
+async function bootPomodoro() {
+  const names = await window.gazegate.pomoSounds();
+  $('pomo-sound').innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('');
+  paintPomodoro(await window.gazegate.pomoGet());
+}
+
 // boot
+bootPomodoro();
 refresh().then(startStatusPolling);

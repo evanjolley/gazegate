@@ -25,7 +25,10 @@
 
   <!-- HOME -->
   <section id="view-home" class="view">
-    <h1>GazeGate</h1>
+    <nav class="tabs">
+      <button data-tab="home" class="on">Blocker</button>
+      <button data-tab="pomodoro">Focus</button>
+    </nav>
     <div id="update-banner" class="banner" style="display:none">
       Blocker update available. <a class="link" id="btn-update">Apply now</a>
     </div>
@@ -56,6 +59,59 @@
       <div class="btn-inline">
         <button id="btn-settings">Settings</button>
         <button class="danger" id="btn-quit">Close</button>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- POMODORO. A plain timer. It does not talk to the blocker, and nothing on
+       this screen can change what is blocked. -->
+  <section id="view-pomodoro" class="view">
+    <nav class="tabs">
+      <button data-tab="home">Blocker</button>
+      <button data-tab="pomodoro" class="on">Focus</button>
+    </nav>
+
+    <div class="pomo">
+      <div class="pomo-phase" id="pomo-phase">Focus</div>
+      <div class="dial">
+        <svg viewBox="0 0 200 200">
+          <circle class="dial-bg" cx="100" cy="100" r="88" />
+          <circle class="dial-arc" id="pomo-arc" cx="100" cy="100" r="88" />
+        </svg>
+        <div class="dial-time" id="pomo-time">25:00</div>
+      </div>
+      <div class="pomo-rounds" id="pomo-rounds"></div>
+      <p class="hint" id="pomo-note"></p>
+      <p class="hint" id="pomo-today"></p>
+    </div>
+
+    <div id="pomo-config" class="pomo-config" style="display:none">
+      <div class="field-row">
+        <label>Focus</label><input type="number" id="pomo-focus" min="1" max="180" step="1" /><span class="hint">min</span>
+      </div>
+      <div class="field-row">
+        <label>Break</label><input type="number" id="pomo-break" min="1" max="60" step="1" /><span class="hint">min</span>
+      </div>
+      <div class="field-row">
+        <label>Long break</label><input type="number" id="pomo-long" min="1" max="120" step="1" /><span class="hint">min</span>
+      </div>
+      <div class="field-row">
+        <label>Long every</label><input type="number" id="pomo-rounds-n" min="2" max="12" step="1" /><span class="hint">blocks</span>
+      </div>
+      <div class="field-row">
+        <label>Sound</label>
+        <select id="pomo-sound"></select>
+        <button id="btn-pomo-test" class="tiny">Test</button>
+      </div>
+      <p class="hint">New lengths apply to the next block, not the one running.</p>
+    </div>
+
+    <div class="btn-row">
+      <button class="primary" id="btn-pomo-primary">Start focus</button>
+      <div class="btn-inline">
+        <button id="btn-pomo-reset">Reset</button>
+        <button id="btn-pomo-config">Lengths &amp; sound</button>
       </div>
     </div>
   </section>

@@ -19,4 +19,15 @@ contextBridge.exposeInMainWorld('gazegate', {
   setEscalate: (on) => ipcRenderer.invoke('set-escalate', on),
   getCoreSites: () => ipcRenderer.invoke('get-core-sites'),
   getStats: () => ipcRenderer.invoke('get-stats'),
+
+  // Focus timer. Read-only from the renderer's point of view — the countdown
+  // itself lives in the main process and is pushed here.
+  pomoGet: () => ipcRenderer.invoke('pomo-get'),
+  pomoStart: () => ipcRenderer.invoke('pomo-start'),
+  pomoPause: () => ipcRenderer.invoke('pomo-pause'),
+  pomoReset: () => ipcRenderer.invoke('pomo-reset'),
+  pomoSetConfig: (patch) => ipcRenderer.invoke('pomo-set-config', patch),
+  pomoSounds: () => ipcRenderer.invoke('pomo-sounds'),
+  pomoTestSound: (name) => ipcRenderer.invoke('pomo-test-sound', name),
+  onPomodoro: (cb) => ipcRenderer.on('pomodoro', (_e, s) => cb(s)),
 });

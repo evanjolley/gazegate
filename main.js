@@ -2,6 +2,7 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, systemPreferences,
 const path = require('path');
 const blocker = require('./blocker');
 const stats = require('./stats');
+const pomodoro = require('./pomodoro');
 
 // A diagnostic entry point. Runs one authenticated round trip to the daemon and
 // exits, so the socket and the code-signature check can be proven from the real
@@ -145,6 +146,7 @@ function trayMenu() {
     unlocked
       ? { label: 'Lock now', click: () => { blocker.lockNow().catch(() => {}); } }
       : { label: `Unlock (${secs}s eye contact)…`, click: () => showPanel('gate-unlock') },
+    { label: 'Focus timer', click: () => showPanel('pomodoro') },
     { type: 'separator' },
     { label: 'Quit GazeGate Completely', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -152,13 +154,38 @@ function trayMenu() {
 
 function refreshTrayMenu() { /* menu is rebuilt per right-click; nothing to cache */ }
 
+let trayIcon = null;
+
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png'));
-  icon.setTemplateImage(true);
-  tray = new Tray(icon);
+  trayIcon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png'));
+  trayIcon.setTemplateImage(true);
+  tray = new Tray(trayIcon);
   tray.setToolTip('GazeGate');
   tray.on('click', () => togglePanel());
   tray.on('right-click', () => tray.popUpContextMenu(trayMenu()));
+  paintTray(pomodoro.state());
+}
+
+// While a focus block is counting, the menu bar shows the countdown and nothing
+// else — the icon steps aside rather than sharing the space with it. Once the
+// block ends the icon comes back, because a finished timer has nothing to say.
+let lastTrayTitle = null;
+function paintTray(s) {
+  if (!tray || tray.isDestroyed()) return;
+  const active = s.status === 'running' || s.status === 'paused';
+  const title = active ? formatClock(s.remainingSec) : '';
+  if (title === lastTrayTitle) return;
+  const wasActive = lastTrayTitle !== null && lastTrayTitle !== '';
+  if (active !== wasActive) tray.setImage(active ? nativeImage.createEmpty() : trayIcon);
+  tray.setTitle(title, { fontType: 'monospacedDigit' });
+  tray.setToolTip(active ? `GazeGate — ${s.phase === 'focus' ? 'focus' : 'break'} ${title}` : 'GazeGate');
+  lastTrayTitle = title;
+}
+
+function formatClock(sec) {
+  const m = Math.floor(Math.max(0, sec) / 60);
+  const s = Math.max(0, sec) % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 // ---- IPC ----
@@ -252,6 +279,16 @@ ipcMain.handle('set-gate-active', (_e, active) => { gateActive = !!active; retur
 // The in-app Quit button just dismisses the panel, same as clicking away.
 ipcMain.handle('close-panel', () => { hidePanel(); return { ok: true }; });
 
+// ---- Pomodoro. Its own thing: no daemon, no unlocks, nothing here can make
+// the blocker looser. ----
+ipcMain.handle('pomo-get', () => pomodoro.state());
+ipcMain.handle('pomo-start', () => { pomodoro.start(); return pomodoro.state(); });
+ipcMain.handle('pomo-pause', () => { pomodoro.pause(); return pomodoro.state(); });
+ipcMain.handle('pomo-reset', () => { pomodoro.reset(); return pomodoro.state(); });
+ipcMain.handle('pomo-set-config', (_e, patch) => pomodoro.setConfig(patch));
+ipcMain.handle('pomo-sounds', () => pomodoro.sounds());
+ipcMain.handle('pomo-test-sound', (_e, name) => { pomodoro.playSound(name); return { ok: true }; });
+
 ipcMain.handle('lock-now', async () => { await blocker.lockNow(); return { ok: true }; });
 ipcMain.handle('get-sites', () => blocker.readSites());
 ipcMain.handle('set-sites', async (_e, list) => { await blocker.writeSites(list); return { ok: true }; });
@@ -280,6 +317,14 @@ app.whenReady().then(async () => {
   }
   const ses = require('electron').session.defaultSession;
   ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
+
+  pomodoro.init();
+  // One source of truth for the countdown: the main process pushes it to both
+  // the menu bar and the panel, so a hidden window cannot drift from the tray.
+  pomodoro.onChange((s) => {
+    paintTray(s);
+    if (win && !win.isDestroyed()) win.webContents.send('pomodoro', s);
+  });
 
   installAppMenu();
   createTray();
