@@ -43,6 +43,12 @@ function createWindow() {
     // A menu-bar panel, not an app window: no chrome, no Dock, floats above
     // everything, and macOS rounds a frameless window's corners for us.
     frame: false,
+    // An NSPanel, so showing it does not activate GazeGate. A plain window's
+    // show() calls activateIgnoringOtherApps:YES, and activating a second app
+    // while you are inside someone else's fullscreen Space is what makes macOS
+    // animate you out of that Space. A panel still takes key focus, so blur
+    // still dismisses and the sites field still types.
+    type: 'panel',
     resizable: false,
     movable: false,
     fullscreenable: false,
@@ -60,7 +66,13 @@ function createWindow() {
   });
   win.loadFile('renderer/index.html');
   // Follow you onto other spaces and over fullscreen apps, like any status item.
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // skipTransformProcessType because we are already LSUIElement: without it
+  // Electron bounces the process type through the Dock on this call, which
+  // blinks a Dock icon and hands activation around for no reason.
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
 
   win.once('ready-to-show', () => { if (pendingShow) showPanel(); });
 
@@ -99,9 +111,11 @@ function showPanel(view) {
   if (!win || win.isDestroyed()) createWindow();
   pendingShow = true;
   positionPanel();
+  // show() alone. focus() and app.focus({ steal: true }) both ended in
+  // activateIgnoringOtherApps:, which yanked you back to the desktop Space
+  // whenever the panel was opened from a fullscreen app. A panel window is
+  // made key by show() without any of that.
   win.show();
-  win.focus();
-  app.focus({ steal: true });
   if (view) win.webContents.send('navigate', view);
 }
 
