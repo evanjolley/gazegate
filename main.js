@@ -73,14 +73,7 @@ function createWindow() {
     },
   });
   win.loadFile('renderer/index.html');
-  // Follow you onto other spaces and over fullscreen apps, like any status item.
-  // skipTransformProcessType because we are already LSUIElement: without it
-  // Electron bounces the process type through the Dock on this call, which
-  // blinks a Dock icon and hands activation around for no reason.
-  win.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true,
-    skipTransformProcessType: true,
-  });
+  followEverySpace();
 
   win.once('ready-to-show', () => { if (pendingShow) showPanel(); });
 
@@ -114,6 +107,25 @@ function createWindow() {
   });
 }
 
+// Follow you onto other spaces and over fullscreen apps, like any status item.
+// skipTransformProcessType because we are already LSUIElement: without it
+// Electron bounces the process type through the Dock on this call, which
+// blinks a Dock icon and hands activation around for no reason.
+//
+// Called again on every open, not just at creation. macOS drops
+// NSWindowCollectionBehaviorCanJoinAllSpaces from a window that has sat hidden
+// for a while, and the window silently goes back to belonging to whichever
+// Space it was made on. Setting it once at startup held for a few minutes and
+// then stopped, which is what made the panel openable on the desktop and
+// nowhere else. It is idempotent, so re-asserting costs nothing.
+function followEverySpace() {
+  if (!win || win.isDestroyed()) return;
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
+}
+
 // Park the panel under the tray icon, clamped to the display it lives on.
 function positionPanel() {
   if (!tray || !win || win.isDestroyed()) return;
@@ -130,6 +142,7 @@ function showPanel(view) {
   if (!win || win.isDestroyed()) createWindow();
   pendingShow = true;
   shownAt = Date.now();
+  followEverySpace();
   positionPanel();
   // show() alone. focus() and app.focus({ steal: true }) both ended in
   // activateIgnoringOtherApps:, which yanked you back to the desktop Space
