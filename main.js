@@ -32,6 +32,14 @@ let pendingShow = !process.argv.includes('--hidden');
 // a stare in progress. The renderer flips this while the gate is running.
 let gateActive = false;
 
+// When the panel was shown, so blur can tell a real click-away from macOS
+// taking key focus back on its own. See the blur handler.
+let shownAt = 0;
+// macOS hands key focus away from a background app's panel within about a
+// second of it opening over someone else's fullscreen Space. Measured at 865ms
+// against a fullscreen window; a click-away by a human lands later than this.
+const BLUR_SETTLE_MS = 1500;
+
 const PANEL_W = 460;
 const PANEL_H = 640;
 const PANEL_GAP = 6; // breathing room under the menu bar
@@ -78,7 +86,18 @@ function createWindow() {
 
   // Click anywhere else and the panel goes away. Suppressed mid-stare, and in
   // dev, where opening devtools blurs the window.
-  win.on('blur', () => { if (!gateActive && !DEV) hidePanel(); });
+  //
+  // Also suppressed for a moment after the panel opens. GazeGate never becomes
+  // the active app when the panel opens, so the panel holds key focus only for
+  // as long as macOS lets it, and over another app's fullscreen Space macOS
+  // takes it back within a second of the panel appearing. Hiding on that blur
+  // is why the panel could be opened on the desktop and nowhere else: it did
+  // reach the fullscreen Space, and then dismissed itself before you saw it.
+  win.on('blur', () => {
+    if (gateActive || DEV) return;
+    if (Date.now() - shownAt < BLUR_SETTLE_MS) return;
+    hidePanel();
+  });
 
   if (DEV) {
     win.webContents.openDevTools({ mode: 'detach' });
@@ -110,6 +129,7 @@ function positionPanel() {
 function showPanel(view) {
   if (!win || win.isDestroyed()) createWindow();
   pendingShow = true;
+  shownAt = Date.now();
   positionPanel();
   // show() alone. focus() and app.focus({ steal: true }) both ended in
   // activateIgnoringOtherApps:, which yanked you back to the desktop Space
